@@ -1,4 +1,3 @@
-
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 
@@ -16,14 +15,14 @@ interface ApplicationStatusProps {
 
 export function ApplicationStatus({ stages, totalApplications }: ApplicationStatusProps) {
   return (
-    <Card>
-      <CardHeader>
+    <Card className="flex flex-col h-full">
+      <CardHeader className="flex-none">
         <CardTitle className="text-lg">Application Status</CardTitle>
         <CardDescription>Track your application progress</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 flex-1 overflow-auto">
         {stages.map((stage) => {
-          const percentage = Math.round((stage.count / totalApplications) * 100);
+          const percentage = totalApplications > 0 ? Math.round((stage.count / totalApplications) * 100) : 0;
           return (
             <div key={stage.id} className="space-y-2">
               <div className="flex items-center justify-between">

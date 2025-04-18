@@ -1,4 +1,3 @@
-
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -24,12 +23,12 @@ interface RecentApplicationsProps {
 
 export function RecentApplications({ applications }: RecentApplicationsProps) {
   return (
-    <Card>
-      <CardHeader>
+    <Card className="flex flex-col h-full">
+      <CardHeader className="flex-none">
         <CardTitle className="text-lg">Recent Applications</CardTitle>
         <CardDescription>Your latest job applications</CardDescription>
       </CardHeader>
-      <CardContent className="p-0">
+      <CardContent className="p-0 flex-1 overflow-auto">
         <div className="divide-y">
           {applications.map((app) => (
             <div key={app.id} className="flex items-center justify-between p-4 hover:bg-muted/50 transition-colors">
