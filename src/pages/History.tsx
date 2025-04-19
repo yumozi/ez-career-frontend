@@ -78,65 +78,66 @@ export default function History() {
 
                 if (applicationsError) {
                     console.error('Error fetching applications:', applicationsError);
-                    toast({
-                        title: "Error",
-                        description: "Failed to load applications",
-                        variant: "destructive",
-                    });
-                    return;
+                    // Just set empty applications and continue
+                    setApplications([]);
+                } else {
+                    setApplications(applicationsData || []);
                 }
 
-                setApplications(applicationsData || []);
+                try {
+                    // Try to fetch activity logs, but handle 404/missing table gracefully
+                    const { data: activityData, error: activityError } = await supabase
+                        .from('application_activity')
+                        .select(`
+                            id, user_id, application_id, action_type,
+                            previous_status, new_status, created_at, details,
+                            applications(position_title, company_name)
+                        `)
+                        .eq('user_id', user.id)
+                        .order('created_at', { ascending: false });
 
-                // Fetch activity logs
-                const { data: activityData, error: activityError } = await supabase
-                    .from('application_activity')
-                    .select(`
-            id, user_id, application_id, action_type,
-            previous_status, new_status, created_at, details,
-            applications(position_title, company_name)
-          `)
-                    .eq('user_id', user.id)
-                    .order('created_at', { ascending: false });
-
-                if (activityError) {
-                    console.error('Error fetching activity logs:', activityError);
-                    toast({
-                        title: "Error",
-                        description: "Failed to load activity history",
-                        variant: "destructive",
-                    });
-                    return;
-                }
-
-                // Transform activity data to include application details
-                const transformedData = activityData?.map(activity => {
-                    // Safely access the nested properties with unknown intermediate casting
-                    const applications = activity.applications as unknown;
-                    let positionTitle = 'Unknown Position';
-                    let companyName = 'Unknown Company';
-
-                    // Type guards to safely access properties
-                    if (applications && typeof applications === 'object') {
-                        const appObj = applications as { [key: string]: unknown };
-                        if (appObj.position_title && typeof appObj.position_title === 'string') {
-                            positionTitle = appObj.position_title;
-                        }
-                        if (appObj.company_name && typeof appObj.company_name === 'string') {
-                            companyName = appObj.company_name;
-                        }
+                    if (activityError) {
+                        console.error('Error fetching activity logs:', activityError);
+                        // Just set empty history instead of showing error toast
+                        setApplicationHistory([]);
+                        return;
                     }
 
-                    return {
-                        ...activity,
-                        position_title: positionTitle,
-                        company_name: companyName,
-                    };
-                }) || [];
+                    // Transform activity data to include application details
+                    const transformedData = activityData?.map(activity => {
+                        // Safely access the nested properties
+                        const applications = activity.applications as unknown;
+                        let positionTitle = 'Unknown Position';
+                        let companyName = 'Unknown Company';
 
-                setApplicationHistory(transformedData);
+                        // Type guards to safely access properties
+                        if (applications && typeof applications === 'object') {
+                            const appObj = applications as { [key: string]: unknown };
+                            if (appObj.position_title && typeof appObj.position_title === 'string') {
+                                positionTitle = appObj.position_title;
+                            }
+                            if (appObj.company_name && typeof appObj.company_name === 'string') {
+                                companyName = appObj.company_name;
+                            }
+                        }
+
+                        return {
+                            ...activity,
+                            position_title: positionTitle,
+                            company_name: companyName,
+                        };
+                    }) || [];
+
+                    setApplicationHistory(transformedData);
+                } catch (error) {
+                    console.error('Error processing activity data:', error);
+                    setApplicationHistory([]);
+                }
             } catch (error) {
                 console.error('Error in fetchData:', error);
+                // Don't show a toast for database errors, just show empty state
+                setApplications([]);
+                setApplicationHistory([]);
             } finally {
                 setIsLoading(false);
             }

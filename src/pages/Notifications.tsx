@@ -61,18 +61,17 @@ export default function Notifications() {
                 .order('created_at', { ascending: false });
 
             if (error) {
+                // Silently handle database errors by setting empty notifications
                 console.error('Error fetching notifications:', error);
-                toast({
-                    title: "Error",
-                    description: "Failed to load notifications",
-                    variant: "destructive",
-                });
+                setNotifications([]);
                 return;
             }
 
             setNotifications(data || []);
         } catch (error) {
             console.error('Error in fetchNotifications:', error);
+            // Don't show toast for database errors, just set empty state
+            setNotifications([]);
         } finally {
             setIsLoading(false);
         }
