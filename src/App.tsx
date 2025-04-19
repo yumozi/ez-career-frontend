@@ -10,6 +10,8 @@ import Applications from "./pages/Applications";
 import Apply from "./pages/Apply";
 import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
+import Notifications from "./pages/Notifications";
+import History from "./pages/History";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { AuthProvider } from "./lib/auth-context";
 
@@ -33,6 +35,8 @@ const App = () => (
               <Route path="/apply" element={<Apply />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/notifications" element={<Notifications />} />
+              <Route path="/history" element={<History />} />
             </Route>
 
             {/* Catch all route */}
