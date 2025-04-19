@@ -1,7 +1,7 @@
-import { 
-  Sidebar, 
-  SidebarContent, 
-  SidebarFooter, 
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -10,14 +10,14 @@ import {
   SidebarMenuItem,
   SidebarMenuButton
 } from "@/components/ui/sidebar";
-import { FaBriefcase, FaUser, FaChartBar, FaCog, FaFileAlt, FaBell, FaHistory, FaSignOutAlt, FaSearch } from "react-icons/fa";
+import { FaBriefcase, FaUser, FaChartBar, FaCog, FaFileAlt, FaBell, FaHistory, FaSignOutAlt, FaSearch, FaExclamationTriangle } from "react-icons/fa";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 
 export function AppSidebar() {
   const { pathname } = useLocation();
   const { signOut } = useAuth();
-  
+
   return (
     <Sidebar>
       <SidebarHeader className="flex items-center gap-2 px-6">
@@ -28,7 +28,7 @@ export function AppSidebar() {
           <span className="text-lg font-bold">EZ Career</span>
         </div>
       </SidebarHeader>
-      
+
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>Main</SidebarGroupLabel>
@@ -42,7 +42,7 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              
+
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
                   <Link to="/applications" className={pathname === "/applications" ? "text-primary font-medium" : ""}>
@@ -51,7 +51,7 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              
+
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
                   <Link to="/apply" className={pathname === "/apply" ? "text-primary font-medium" : ""}>
@@ -60,7 +60,7 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              
+
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
                   <Link to="/profile" className={pathname === "/profile" ? "text-primary font-medium" : ""}>
@@ -86,7 +86,16 @@ export function AppSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              
+
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
+                  <Link to="/agent-assistance" className={pathname === "/agent-assistance" ? "text-primary font-medium" : ""}>
+                    <FaExclamationTriangle className="h-4 w-4" />
+                    <span>Agent Assistance</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
                   <Link to="/history" className={pathname === "/history" ? "text-primary font-medium" : ""}>
@@ -99,7 +108,7 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      
+
       <SidebarFooter className="px-6">
         <div className="flex items-center justify-between w-full">
           <SidebarMenu className="flex-1">
@@ -112,8 +121,8 @@ export function AppSidebar() {
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
-          <button 
-            onClick={signOut} 
+          <button
+            onClick={signOut}
             className="flex items-center justify-center h-9 w-9 rounded-md hover:bg-accent hover:text-accent-foreground"
             aria-label="Logout"
           >

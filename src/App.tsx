@@ -12,6 +12,7 @@ import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
 import Notifications from "./pages/Notifications";
 import History from "./pages/History";
+import AgentAssistance from "./pages/AgentAssistance";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { AuthProvider } from "./lib/auth-context";
 
@@ -37,6 +38,7 @@ const App = () => (
               <Route path="/settings" element={<Settings />} />
               <Route path="/notifications" element={<Notifications />} />
               <Route path="/history" element={<History />} />
+              <Route path="/agent-assistance" element={<AgentAssistance />} />
             </Route>
 
             {/* Catch all route */}
