@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,48 +23,123 @@ export default function Apply() {
   const [activeTraceId, setActiveTraceId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [cancelRequested, setCancelRequested] = useState(false);
-  const [activeTasks, setActiveTasks] = useState<string[]>([]);
+  const [pollingIntervalId, setPollingIntervalId] = useState<NodeJS.Timeout | null>(null);
   const { toast } = useToast();
+  const pollingRef = useRef(false);
 
-  // Poll for active tasks when there's an active trace ID or a cancel is requested
+  // Cleanup polling on component unmount
   useEffect(() => {
-    if (!activeTraceId && !cancelRequested) return;
+    return () => {
+      if (pollingIntervalId) {
+        clearInterval(pollingIntervalId);
+        console.log("Cleaned up polling interval on unmount");
+      }
+    };
+  }, [pollingIntervalId]);
 
-    const checkTaskStatus = async () => {
+  const startPollingForResult = (traceId: string) => {
+    // Prevent multiple polling loops
+    if (pollingRef.current) {
+      console.log("Polling already active for", traceId);
+      return;
+    }
+    pollingRef.current = true;
+    console.log("Starting polling for result:", traceId);
+    setStatusMessage("Processing request... Polling for results.");
+
+    const poll = async () => {
+      if (!pollingRef.current) return; // Stop if polling was cancelled externally
+      console.log(`Polling for ${traceId}...`);
       try {
-        const response = await fetch("http://localhost:8000/tasks/status");
-        if (response.ok) {
-          const data = await response.json();
-          setActiveTasks(data.active_tasks);
+        const response = await fetch(`http://localhost:8000/tasks/result/${traceId}`);
 
-          // Check if our task is still active
-          if (activeTraceId && !data.active_tasks.includes(activeTraceId)) {
-            if (cancelRequested) {
-              console.log("Task has been successfully cancelled");
-              setStatusMessage("Task has been successfully cancelled");
-              setCancelRequested(false);
-              setTimeout(() => {
-                setIsLoading(false);
-                setStatusMessage(null);
-                setActiveTraceId(null);
-              }, 2000);
-            }
+        if (!response.ok) {
+          if (response.status === 404) {
+            console.log(`Task ${traceId} not found (likely finished or error). Stopping poll.`);
+            resetApplicationState();
+            toast({
+              title: "Task Not Found",
+              description: "The task could not be found. It might have finished or encountered an error.",
+              variant: "destructive",
+            });
+          } else {
+            console.error(`Polling error: ${response.status}`);
+            setStatusMessage(`Polling error: ${response.status}. Retrying...`);
           }
+          return; // Continue polling on non-404 errors
+        }
+
+        const data = await response.json();
+        console.log("Polling result:", data);
+
+        switch (data.status) {
+          case "pending":
+            setStatusMessage("Task is still processing...");
+            // Continue polling
+            break;
+          case "completed":
+            resetApplicationState();
+            toast({
+              title: "Application Submitted",
+              description: data.result || `Your application for ${jobTitle} jobs has been submitted successfully.`,
+            });
+            break;
+          case "cancelled":
+            resetApplicationState();
+            toast({
+              title: "Application Cancelled",
+              description: data.result || "The application process was cancelled.",
+            });
+            break;
+          case "failed":
+            resetApplicationState();
+            toast({
+              title: "Application Failed",
+              description: data.result || `An error occurred during the application process.`,
+              variant: "destructive",
+            });
+            break;
+          default:
+            console.error("Unknown task status:", data.status);
+            setStatusMessage(`Unknown task status: ${data.status}. Stopping poll.`);
+            resetApplicationState();
         }
       } catch (error) {
-        console.error("Error checking task status:", error);
+        console.error("Polling fetch error:", error);
+        setStatusMessage("Error during polling. Retrying...");
+        // Continue polling after a network error
       }
     };
 
-    // Run immediately
-    checkTaskStatus();
+    // Initial poll
+    poll();
+    // Set up interval
+    const intervalId = setInterval(poll, 3000); // Poll every 3 seconds
+    setPollingIntervalId(intervalId);
+  };
 
-    // Then set up polling
-    const intervalId = setInterval(checkTaskStatus, 2000);
+  const resetApplicationState = () => {
+    console.log("Resetting application state");
+    if (pollingIntervalId) {
+      clearInterval(pollingIntervalId);
+      setPollingIntervalId(null);
+      pollingRef.current = false;
+    }
+    setIsLoading(false);
+    setActiveTraceId(null);
+    setStatusMessage(null);
+    setCancelRequested(false);
+  };
 
-    // Cleanup
-    return () => clearInterval(intervalId);
-  }, [activeTraceId, cancelRequested]);
+  // Simplified this - now just force resets
+  const forceResetApplicationState = () => {
+    console.log("Forcing application state reset");
+    resetApplicationState();
+    toast({
+      title: "Application Reset",
+      description: "The application state has been reset.",
+    });
+  };
 
   const handleSuggestionClick = (suggestion: string) => {
     setJobTitle(suggestion);
@@ -81,11 +156,13 @@ export default function Apply() {
     }
 
     setIsLoading(true);
-    setStatusMessage("Starting application process...");
+    setStatusMessage("Sending application request...");
     setCancelRequested(false);
+    setActiveTraceId(null); // Clear previous trace ID if any
+    if (pollingIntervalId) clearInterval(pollingIntervalId); // Clear previous polling
+    pollingRef.current = false;
 
     try {
-      // Replace [user-filled] with the actual job title
       const taskString = `Search up ${jobTitle} jobs and apply to any one. Do not pick around. Just apply to one as fast as possible. Don't use autofill or LinkedIn, instead enter information manually.`;
 
       const response = await fetch("http://localhost:8000/orchestrate", {
@@ -99,45 +176,32 @@ export default function Apply() {
         })
       });
 
-      if (!response.ok) {
-        throw new Error(`Error: ${response.status}`);
+      if (response.status !== 202) { // Check for 202 Accepted
+        const errorText = await response.text();
+        throw new Error(`Error starting task: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
-      console.log("Application submitted:", data);
+      console.log("Orchestrate response:", data);
 
-      // Store the trace ID for potential cancellation
-      setActiveTraceId(data.trace_id);
-
-      // Check if the application was cancelled
-      if (data.result === "Task was cancelled") {
-        setStatusMessage(null);
-        toast({
-          title: "Application Cancelled",
-          description: "The application process was cancelled.",
-        });
-        setIsLoading(false);
-        setActiveTraceId(null);
+      if (data.trace_id) {
+        setActiveTraceId(data.trace_id);
+        // Start polling for results
+        startPollingForResult(data.trace_id);
       } else {
-        setStatusMessage(null);
-        toast({
-          title: "Application Submitted",
-          description: `Your application for ${jobTitle} jobs has been submitted successfully.`,
-        });
-        setIsLoading(false);
-        setActiveTraceId(null);
+        throw new Error("Backend did not return a trace_id");
       }
+
     } catch (error) {
-      console.error("Application error:", error);
-      setStatusMessage(null);
+      console.error("Error initiating application:", error);
       toast({
-        title: "Application Failed",
-        description: `Failed to submit application: ${error instanceof Error ? error.message : "Unknown error"}`,
+        title: "Application Initiation Failed",
+        description: `${error instanceof Error ? error.message : "Unknown error"}`,
         variant: "destructive",
       });
-      setIsLoading(false);
-      setActiveTraceId(null);
+      resetApplicationState(); // Reset UI on initiation failure
     }
+    // Note: setIsLoading(false) is now handled by resetApplicationState
   };
 
   const cancelApplication = async () => {
@@ -146,129 +210,121 @@ export default function Apply() {
       return;
     }
 
+    // Stop the results polling first
+    if (pollingIntervalId) {
+      clearInterval(pollingIntervalId);
+      setPollingIntervalId(null);
+      pollingRef.current = false;
+    }
+
+    setStatusMessage("Sending cancellation request...");
+    setCancelRequested(true);
+    console.log("Sending cancellation request for trace_id:", activeTraceId);
+
     try {
-      setStatusMessage("Cancelling application process...");
-      console.log("Sending cancellation request for trace_id:", activeTraceId);
-      setCancelRequested(true);
+      const response = await fetch("http://localhost:8000/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        body: JSON.stringify({ trace_id: activeTraceId })
+      });
 
-      // Log the request details for debugging
-      const requestData = {
-        trace_id: activeTraceId
-      };
-      console.log("Cancel request payload:", JSON.stringify(requestData));
+      console.log(`Cancel response status: ${response.status}`);
 
-      // Directly call fetch with full error logging
-      try {
-        const response = await fetch("http://localhost:8000/cancel", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-          },
-          body: JSON.stringify(requestData)
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server error during cancel: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log("Cancel response data:", data);
+
+      if (data.success) {
+        setStatusMessage("Cancellation queued. Waiting for background process...");
+        // Restart polling to confirm cancellation completion
+        startPollingForResult(activeTraceId);
+      } else {
+        setStatusMessage("Cancellation request failed.");
+        setCancelRequested(false); // Allow retry or force kill
+        toast({
+          title: "Cancellation Failed",
+          description: data.message || "Failed to queue cancellation.",
+          variant: "destructive",
         });
-
-        // Log response status
-        console.log(`Cancel response status: ${response.status}`);
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`Server error: ${response.status}`, errorText);
-          throw new Error(`Server error: ${response.status} - ${errorText}`);
-        }
-
-        const data = await response.json();
-        console.log("Cancel response data:", data);
-
-        if (data.success) {
-          setStatusMessage("Cancellation request sent successfully. Waiting for confirmation...");
-          // Force check status immediately
-          checkTaskStatus(false); // Don't show toast
-        } else {
-          console.error("Cancellation failed on server:", data.message);
-          toast({
-            title: "Cancellation Error",
-            description: data.message || "Failed to cancel the application on the server.",
-            variant: "destructive",
-          });
-
-          // If server says no active task, force reset UI anyway
-          if (data.message.includes("No active task found")) {
-            forceResetApplicationState();
-          } else {
-            setCancelRequested(false);
-          }
-        }
-      } catch (fetchError) {
-        console.error("Fetch error during cancel:", fetchError);
-        throw fetchError;
       }
     } catch (error) {
       console.error("Cancellation error:", error);
-      setCancelRequested(false);
+      setStatusMessage("Cancellation error.");
+      setCancelRequested(false); // Allow retry or force kill
       toast({
         title: "Cancellation Failed",
-        description: `Failed to cancel application: ${error instanceof Error ? error.message : "Unknown error"}`,
+        description: `Error sending cancel request: ${error instanceof Error ? error.message : "Unknown error"}`,
         variant: "destructive",
-      });
-
-      // If all else fails, offer to force reset
-      toast({
-        title: "Reset Application",
-        description: "Would you like to force reset the application state?",
-        action: (
-          <Button onClick={forceResetApplicationState} variant="destructive" size="sm">
-            Reset
-          </Button>
-        ),
       });
     }
   };
 
-  // Force reset the application state regardless of backend
-  const forceResetApplicationState = () => {
-    console.log("Forcing application state reset");
-    setIsLoading(false);
-    setActiveTraceId(null);
-    setStatusMessage(null);
-    setCancelRequested(false);
-    toast({
-      title: "Application Reset",
-      description: "The application state has been reset.",
-    });
-  };
+  const forceKillApplication = async () => {
+    if (!activeTraceId) {
+      console.error("No active trace ID to kill");
+      return;
+    }
 
-  // Modified to accept a parameter to control toast
-  const checkTaskStatus = async (showToast = true) => {
+    // Stop any active polling
+    if (pollingIntervalId) {
+      clearInterval(pollingIntervalId);
+      setPollingIntervalId(null);
+      pollingRef.current = false;
+    }
+
+    setStatusMessage("Sending force kill request...");
+    setCancelRequested(true); // Mark as attempting termination
+    console.log("Sending force kill request for trace_id:", activeTraceId);
+
     try {
-      const response = await fetch("http://localhost:8000/tasks/status");
-      if (response.ok) {
-        const data = await response.json();
-        console.log("Active tasks:", data.active_tasks);
-        setActiveTasks(data.active_tasks);
+      const response = await fetch("http://localhost:8000/kill", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        body: JSON.stringify({ trace_id: activeTraceId, force: true })
+      });
 
-        if (showToast) {
-          toast({
-            title: "Active Tasks",
-            description: `There are ${data.count} active tasks.`,
-          });
-        }
+      console.log(`Force kill response status: ${response.status}`);
 
-        // If our task is not among active tasks, reset state
-        if (activeTraceId && !data.active_tasks.includes(activeTraceId)) {
-          console.log("Our task is no longer active, resetting state");
-          setTimeout(() => forceResetApplicationState(), 2000);
-        }
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server error during kill: ${response.status} - ${errorText}`);
       }
-    } catch (error) {
-      console.error("Error checking task status:", error);
-      if (showToast) {
+
+      const data = await response.json();
+      console.log("Force kill response:", data);
+
+      if (data.success) {
+        setStatusMessage("Force kill queued. Resetting UI.");
+        toast({ title: "Termination Queued", description: data.message });
+      } else {
+        setStatusMessage("Force kill request failed.");
         toast({
-          title: "Status Check Failed",
-          description: "Failed to check task status.",
+          title: "Force Kill Failed",
+          description: data.message || "Failed to queue force kill.",
           variant: "destructive",
         });
       }
+    } catch (error) {
+      console.error("Force kill error:", error);
+      setStatusMessage("Force kill error.");
+      toast({
+        title: "Force Kill Error",
+        description: `Error sending kill request: ${error instanceof Error ? error.message : "Unknown error"}`,
+        variant: "destructive",
+      });
+    } finally {
+      // Reset UI immediately after force kill attempt
+      resetApplicationState();
     }
   };
 
@@ -289,7 +345,7 @@ export default function Apply() {
                 <Card className="bg-white">
                   <CardContent className="pt-6">
                     <div className="space-y-6">
-                      {isLoading && statusMessage && (
+                      {isLoading && (
                         <Alert className="bg-blue-50 border-blue-200">
                           <div className="flex justify-between items-center">
                             <div className="flex items-center gap-2">
@@ -300,25 +356,27 @@ export default function Apply() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => checkTaskStatus(true)}
-                                className="h-8 px-2 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
-                              >
-                                <RefreshCw className="h-4 w-4 mr-1" />
-                                Check Status
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
                                 onClick={cancelApplication}
                                 disabled={cancelRequested}
-                                className="h-8 px-2 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                className="h-8 px-2 text-orange-600 hover:text-orange-800 hover:bg-orange-50"
                               >
                                 <X className="h-4 w-4 mr-1" />
                                 {cancelRequested ? "Cancelling..." : "Cancel"}
                               </Button>
+                              {cancelRequested && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={forceKillApplication}
+                                  className="h-8 px-2 text-red-700 hover:text-red-900 hover:bg-red-100"
+                                >
+                                  <X className="h-4 w-4 mr-1" />
+                                  Force Kill
+                                </Button>
+                              )}
                             </div>
                           </div>
-                          <AlertDescription>{statusMessage}</AlertDescription>
+                          <AlertDescription>{statusMessage || "Please wait..."}</AlertDescription>
                           {activeTraceId && (
                             <div className="mt-2 text-xs text-gray-500">
                               Task ID: {activeTraceId}
