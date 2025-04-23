@@ -7,14 +7,33 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { Loader2, X, RefreshCw } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Textarea } from "@/components/ui/textarea";
 
 // Job suggestions for quick selection
 const jobSuggestions = [
+  // Position titles
   "Software Engineer",
   "Product Manager",
   "Data Scientist",
   "UX Designer",
-  "Frontend Developer"
+  "Frontend Developer",
+  "Full Stack Developer",
+  // Company-specific
+  "Jobs at Google",
+  "Jobs at Microsoft",
+  "Jobs at Amazon",
+  // Qualification-based
+  "Jobs that fit my profile",
+  "Entry level positions",
+  "Senior level positions",
+  "Software engineering internships",
+  // Location-based
+  "Jobs in California",
+  "Jobs in New York",
+  // Filters
+  "Remote jobs only",
+  "Hybrid work opportunities",
+  "Part-time positions"
 ];
 
 export default function Apply() {
@@ -163,7 +182,16 @@ export default function Apply() {
     pollingRef.current = false;
 
     try {
-      const taskString = `Search up ${jobTitle} jobs and apply to any one. Do not pick around. Just apply to one as fast as possible. Don't use autofill or LinkedIn, instead enter information manually.`;
+      const taskString = `The user is looking for: "${jobTitle}"
+
+      Search and apply for relevant job opportunities on user's behalf based on this description, using job boards like LinkedIn or directly visiting company career pages that match the criteria.
+
+      Do not use Indeed, as it requires captchas and you don't have the ability to solve them.
+
+      Prioritize jobs that allow for quick applications without creating new accounts, or jobs with straightforward application processes first. 
+
+      Your goal is to apply to as many jobs as possible, and as quickly as possible. Quantity is more important than quality.
+`;
 
       const response = await fetch("http://localhost:8000/orchestrate", {
         method: "POST",
@@ -385,20 +413,19 @@ export default function Apply() {
                         </Alert>
                       )}
 
-                      <div className="flex flex-wrap items-center gap-2 text-lg">
-                        <span>I want to apply to</span>
-                        <Input
+                      <div className="space-y-4">
+                        <h2 className="text-xl font-semibold">What jobs would you like to apply to today?</h2>
+                        <Textarea
                           value={jobTitle}
                           onChange={(e) => setJobTitle(e.target.value)}
-                          className="w-64 inline-flex"
-                          placeholder="Enter job title"
+                          className="min-h-[100px]"
+                          placeholder="Describe the jobs you're looking for..."
                           disabled={isLoading}
                         />
-                        <span>jobs.</span>
                       </div>
 
                       <div className="space-y-3">
-                        <p className="text-sm text-muted-foreground">Suggestions:</p>
+                        <p className="text-sm text-muted-foreground">Suggestions for You (click to use):</p>
                         <div className="flex flex-wrap gap-2">
                           {jobSuggestions.map((suggestion) => (
                             <Button
