@@ -151,18 +151,41 @@ export default function Apply() {
     const poll = async () => {
       if (!pollingRef.current) return; // Stop if polling was cancelled externally
       console.log(`Polling for ${traceId}...`);
+      
+      // Get current cancelRequested status from localStorage to ensure we have the latest value
+      let isCancelRequested = cancelRequested;
+      try {
+        const storedTaskData = localStorage.getItem(ACTIVE_TASK_KEY);
+        if (storedTaskData) {
+          const taskData: StoredTaskData = JSON.parse(storedTaskData);
+          isCancelRequested = taskData.cancelRequested;
+        }
+      } catch (error) {
+        console.error("Error reading cancellation status from localStorage:", error);
+      }
+      
       try {
         const response = await fetch(`http://localhost:8000/tasks/result/${traceId}`);
 
         if (!response.ok) {
           if (response.status === 404) {
             console.log(`Task ${traceId} not found (likely finished or error). Stopping poll.`);
-            resetApplicationState();
-            toast({
-              title: "Task Not Found",
-              description: "The task could not be found. It might have finished or encountered an error.",
-              variant: "destructive",
-            });
+            
+            // Check if this was a cancellation request
+            if (isCancelRequested) {
+              resetApplicationState();
+              toast({
+                title: "Application Cancelled",
+                description: "The application has been successfully cancelled.",
+              });
+            } else {
+              resetApplicationState();
+              toast({
+                title: "Task Not Found",
+                description: "The task could not be found. It might have finished or encountered an error.",
+                variant: "destructive",
+              });
+            }
           } else {
             console.error(`Polling error: ${response.status}`);
             const statusMsg = `Polling error: ${response.status}. Retrying...`;
@@ -370,6 +393,16 @@ export default function Apply() {
         const statusMsg = "Cancellation queued. Waiting for background process...";
         setStatusMessage(statusMsg);
         updateStoredTaskStatus(statusMsg, true);
+        
+        // Log successful cancellation request
+        console.log("Cancellation request was successful, restarting polling to confirm completion");
+        
+        // Show intermediate toast
+        toast({
+          title: "Cancellation Requested",
+          description: "Cancellation request was sent. Waiting for the process to complete...",
+        });
+        
         // Restart polling to confirm cancellation completion
         startPollingForResult(activeTraceId);
       } else {
