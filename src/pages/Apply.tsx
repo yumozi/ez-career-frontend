@@ -171,6 +171,13 @@ export default function Apply() {
           if (response.status === 404) {
             console.log(`Task ${traceId} not found (likely finished or error). Stopping poll.`);
             
+            // Stop polling immediately
+            if (pollingIntervalId) {
+              clearInterval(pollingIntervalId);
+              setPollingIntervalId(null);
+              pollingRef.current = false;
+            }
+            
             // Check if this was a cancellation request
             if (isCancelRequested) {
               resetApplicationState();
@@ -186,6 +193,7 @@ export default function Apply() {
                 variant: "destructive",
               });
             }
+            return; // Stop this poll execution
           } else {
             console.error(`Polling error: ${response.status}`);
             const statusMsg = `Polling error: ${response.status}. Retrying...`;
