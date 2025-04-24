@@ -9,6 +9,18 @@ import { Loader2, X, RefreshCw } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Textarea } from "@/components/ui/textarea";
 
+// localStorage key for storing active task information
+const ACTIVE_TASK_KEY = "ez-frontend-active-task";
+
+// Interface for the stored task data
+interface StoredTaskData {
+  traceId: string;
+  jobTitle: string;
+  timestamp: number;
+  statusMessage: string | null;
+  cancelRequested: boolean;
+}
+
 // Job suggestions for quick selection
 const jobSuggestions = [
   // Position titles
@@ -46,6 +58,39 @@ export default function Apply() {
   const { toast } = useToast();
   const pollingRef = useRef(false);
 
+  // Check for active tasks on component mount
+  useEffect(() => {
+    const storedTaskData = localStorage.getItem(ACTIVE_TASK_KEY);
+    
+    if (storedTaskData) {
+      try {
+        const taskData: StoredTaskData = JSON.parse(storedTaskData);
+        
+        // Check if the stored task is recent (within last 24 hours)
+        const isRecent = Date.now() - taskData.timestamp < 24 * 60 * 60 * 1000;
+        
+        if (isRecent) {
+          console.log("Found active task in localStorage:", taskData);
+          setJobTitle(taskData.jobTitle);
+          setActiveTraceId(taskData.traceId);
+          setIsLoading(true);
+          setStatusMessage(taskData.statusMessage || "Resuming task...");
+          setCancelRequested(taskData.cancelRequested);
+          
+          // Resume polling for the active task
+          startPollingForResult(taskData.traceId);
+        } else {
+          // Task is older than 24 hours, probably completed already
+          console.log("Found stale task in localStorage, removing it");
+          localStorage.removeItem(ACTIVE_TASK_KEY);
+        }
+      } catch (error) {
+        console.error("Error parsing stored task data:", error);
+        localStorage.removeItem(ACTIVE_TASK_KEY);
+      }
+    }
+  }, []);
+
   // Cleanup polling on component unmount
   useEffect(() => {
     return () => {
@@ -56,6 +101,42 @@ export default function Apply() {
     };
   }, [pollingIntervalId]);
 
+  // Save active task to localStorage
+  const saveTaskToLocalStorage = (traceId: string, currentJobTitle: string, currentStatus: string | null, isCancelling: boolean) => {
+    const taskData: StoredTaskData = {
+      traceId,
+      jobTitle: currentJobTitle,
+      timestamp: Date.now(),
+      statusMessage: currentStatus,
+      cancelRequested: isCancelling
+    };
+    
+    localStorage.setItem(ACTIVE_TASK_KEY, JSON.stringify(taskData));
+    console.log("Saved task to localStorage:", taskData);
+  };
+
+  // Update the stored task status
+  const updateStoredTaskStatus = (status: string | null, isCancelling: boolean = false) => {
+    if (!activeTraceId) return;
+    
+    const storedTaskData = localStorage.getItem(ACTIVE_TASK_KEY);
+    if (storedTaskData) {
+      try {
+        const taskData: StoredTaskData = JSON.parse(storedTaskData);
+        taskData.statusMessage = status;
+        taskData.timestamp = Date.now();
+        if (isCancelling !== undefined) {
+          taskData.cancelRequested = isCancelling;
+        }
+        
+        localStorage.setItem(ACTIVE_TASK_KEY, JSON.stringify(taskData));
+        console.log("Updated stored task status:", status);
+      } catch (error) {
+        console.error("Error updating stored task status:", error);
+      }
+    }
+  };
+
   const startPollingForResult = (traceId: string) => {
     // Prevent multiple polling loops
     if (pollingRef.current) {
@@ -65,6 +146,7 @@ export default function Apply() {
     pollingRef.current = true;
     console.log("Starting polling for result:", traceId);
     setStatusMessage("Processing request... Polling for results.");
+    updateStoredTaskStatus("Processing request... Polling for results.");
 
     const poll = async () => {
       if (!pollingRef.current) return; // Stop if polling was cancelled externally
@@ -83,7 +165,9 @@ export default function Apply() {
             });
           } else {
             console.error(`Polling error: ${response.status}`);
-            setStatusMessage(`Polling error: ${response.status}. Retrying...`);
+            const statusMsg = `Polling error: ${response.status}. Retrying...`;
+            setStatusMessage(statusMsg);
+            updateStoredTaskStatus(statusMsg);
           }
           return; // Continue polling on non-404 errors
         }
@@ -93,7 +177,9 @@ export default function Apply() {
 
         switch (data.status) {
           case "pending":
-            setStatusMessage("Task is still processing...");
+            const statusMsg = "Task is still processing...";
+            setStatusMessage(statusMsg);
+            updateStoredTaskStatus(statusMsg);
             // Continue polling
             break;
           case "completed":
@@ -125,7 +211,9 @@ export default function Apply() {
         }
       } catch (error) {
         console.error("Polling fetch error:", error);
-        setStatusMessage("Error during polling. Retrying...");
+        const statusMsg = "Error during polling. Retrying...";
+        setStatusMessage(statusMsg);
+        updateStoredTaskStatus(statusMsg);
         // Continue polling after a network error
       }
     };
@@ -139,6 +227,9 @@ export default function Apply() {
 
   const resetApplicationState = () => {
     console.log("Resetting application state");
+    // Clear localStorage data
+    localStorage.removeItem(ACTIVE_TASK_KEY);
+    
     if (pollingIntervalId) {
       clearInterval(pollingIntervalId);
       setPollingIntervalId(null);
@@ -214,6 +305,8 @@ export default function Apply() {
 
       if (data.trace_id) {
         setActiveTraceId(data.trace_id);
+        // Save task information to localStorage
+        saveTaskToLocalStorage(data.trace_id, jobTitle, "Processing request... Starting application.", false);
         // Start polling for results
         startPollingForResult(data.trace_id);
       } else {
@@ -245,8 +338,12 @@ export default function Apply() {
       pollingRef.current = false;
     }
 
-    setStatusMessage("Sending cancellation request...");
+    const statusMsg = "Sending cancellation request...";
+    setStatusMessage(statusMsg);
     setCancelRequested(true);
+    // Update localStorage with cancellation status
+    updateStoredTaskStatus(statusMsg, true);
+    
     console.log("Sending cancellation request for trace_id:", activeTraceId);
 
     try {
@@ -270,12 +367,16 @@ export default function Apply() {
       console.log("Cancel response data:", data);
 
       if (data.success) {
-        setStatusMessage("Cancellation queued. Waiting for background process...");
+        const statusMsg = "Cancellation queued. Waiting for background process...";
+        setStatusMessage(statusMsg);
+        updateStoredTaskStatus(statusMsg, true);
         // Restart polling to confirm cancellation completion
         startPollingForResult(activeTraceId);
       } else {
-        setStatusMessage("Cancellation request failed.");
+        const statusMsg = "Cancellation request failed.";
+        setStatusMessage(statusMsg);
         setCancelRequested(false); // Allow retry or force kill
+        updateStoredTaskStatus(statusMsg, false);
         toast({
           title: "Cancellation Failed",
           description: data.message || "Failed to queue cancellation.",
@@ -284,8 +385,10 @@ export default function Apply() {
       }
     } catch (error) {
       console.error("Cancellation error:", error);
-      setStatusMessage("Cancellation error.");
+      const statusMsg = "Cancellation error.";
+      setStatusMessage(statusMsg);
       setCancelRequested(false); // Allow retry or force kill
+      updateStoredTaskStatus(statusMsg, false);
       toast({
         title: "Cancellation Failed",
         description: `Error sending cancel request: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -307,8 +410,10 @@ export default function Apply() {
       pollingRef.current = false;
     }
 
-    setStatusMessage("Sending force kill request...");
+    const statusMsg = "Sending force kill request...";
+    setStatusMessage(statusMsg);
     setCancelRequested(true); // Mark as attempting termination
+    updateStoredTaskStatus(statusMsg, true);
     console.log("Sending force kill request for trace_id:", activeTraceId);
 
     try {
