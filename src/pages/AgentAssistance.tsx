@@ -6,11 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Textarea } from "@/components/ui/textarea";
-import { FaExclamationTriangle, FaCheckCircle, FaClock } from "react-icons/fa";
+import { Input } from "@/components/ui/input";
+import { FaExclamationTriangle, FaCheckCircle, FaClock, FaRedo } from "react-icons/fa";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/AppSidebar";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type IssueStatus = "pending" | "resolved";
 
@@ -32,6 +34,9 @@ export default function AgentAssistance() {
     const [loading, setLoading] = useState(true);
     const [selectedIssue, setSelectedIssue] = useState<ApplicationIssue | null>(null);
     const [resolutionNote, setResolutionNote] = useState("");
+    const [reprocessDialogOpen, setReprocessDialogOpen] = useState(false);
+    const [additionalInfo, setAdditionalInfo] = useState<Record<string, string>>({});
+    const [reprocessing, setReprocessing] = useState(false);
     const { toast } = useToast();
     const { user } = useAuth();
 
@@ -97,6 +102,97 @@ export default function AgentAssistance() {
                 description: "Failed to resolve the issue",
                 variant: "destructive",
             });
+        }
+    };
+
+    // New function to reprocess an application
+    const handleReprocessApplication = async () => {
+        if (!selectedIssue) return;
+
+        try {
+            setReprocessing(true);
+
+            const response = await fetch('/api/reprocess_application', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    issue_id: selectedIssue.id,
+                    additional_info: additionalInfo
+                }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Failed to reprocess application');
+            }
+
+            const data = await response.json();
+
+            toast({
+                title: "Application Reprocessing Started",
+                description: `The agent will try to complete this application with the information you provided.`,
+            });
+
+            // Reset states and fetch fresh data
+            setReprocessDialogOpen(false);
+            setAdditionalInfo({});
+            fetchIssues();
+
+        } catch (error) {
+            console.error('Error reprocessing application:', error);
+            toast({
+                title: "Error",
+                description: error instanceof Error ? error.message : "Failed to reprocess application",
+                variant: "destructive",
+            });
+        } finally {
+            setReprocessing(false);
+        }
+    };
+
+    // Helper to extract missing information needs from issue details
+    const extractMissingFields = (issueDetails: string): string[] => {
+        const missingFields: string[] = [];
+
+        // Common patterns in issue details text
+        const patterns = [
+            /missing (?:information|field|data)(?: for)?: ([^.]+)/i,
+            /required field ([^.]+) is (?:missing|empty|not provided)/i,
+            /need(?:s|ed)? (?:to provide|information about) ([^.]+)/i,
+            /could not find ([^.]+) in (?:user|profile) (?:data|information)/i
+        ];
+
+        for (const pattern of patterns) {
+            const match = issueDetails.match(pattern);
+            if (match && match[1]) {
+                // Clean up the field name and add to list
+                const fieldName = match[1].trim().replace(/^(the|your) /i, '');
+                missingFields.push(fieldName);
+            }
+        }
+
+        // If no structured fields found, return a default
+        if (missingFields.length === 0 && issueDetails.toLowerCase().includes('missing')) {
+            missingFields.push('Additional information');
+        }
+
+        return missingFields;
+    };
+
+    const handleInputChange = (field: string, value: string) => {
+        setAdditionalInfo(prev => ({
+            ...prev,
+            [field]: value
+        }));
+    };
+
+    const openReprocessDialog = () => {
+        if (selectedIssue) {
+            // Reset additional info
+            setAdditionalInfo({});
+            setReprocessDialogOpen(true);
         }
     };
 
@@ -265,12 +361,21 @@ export default function AgentAssistance() {
                                                         Back to List
                                                     </Button>
                                                     {selectedIssue.status === 'pending' && (
-                                                        <Button
-                                                            onClick={handleResolveIssue}
-                                                            disabled={!resolutionNote.trim()}
-                                                        >
-                                                            Mark as Resolved
-                                                        </Button>
+                                                        <div className="flex gap-2">
+                                                            <Button
+                                                                onClick={handleResolveIssue}
+                                                                disabled={!resolutionNote.trim()}
+                                                            >
+                                                                Mark as Resolved
+                                                            </Button>
+                                                            <Button
+                                                                onClick={openReprocessDialog}
+                                                                variant="secondary"
+                                                            >
+                                                                <FaRedo className="mr-2 h-4 w-4" />
+                                                                Reprocess
+                                                            </Button>
+                                                        </div>
                                                     )}
                                                 </CardFooter>
                                             </Card>
@@ -292,6 +397,73 @@ export default function AgentAssistance() {
                     </main>
                 </div>
             </div>
+
+            {/* Reprocess Dialog */}
+            <Dialog open={reprocessDialogOpen} onOpenChange={setReprocessDialogOpen}>
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle>Reprocess Application</DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <p className="text-sm text-muted-foreground mb-4">
+                            Provide the missing information needed to reprocess this application.
+                            The agent will attempt to complete the application with this additional data.
+                        </p>
+
+                        {selectedIssue && extractMissingFields(selectedIssue.issue_details).map((field, index) => (
+                            <div key={index} className="mb-4">
+                                <label htmlFor={`field-${index}`} className="block text-sm font-medium mb-1">
+                                    {field}
+                                </label>
+                                <Input
+                                    id={`field-${index}`}
+                                    placeholder={`Enter ${field.toLowerCase()}`}
+                                    value={additionalInfo[field] || ''}
+                                    onChange={(e) => handleInputChange(field, e.target.value)}
+                                />
+                            </div>
+                        ))}
+
+                        <div className="mb-4">
+                            <label htmlFor="additional-notes" className="block text-sm font-medium mb-1">
+                                Additional Notes
+                            </label>
+                            <Textarea
+                                id="additional-notes"
+                                placeholder="Any other information that might help"
+                                value={additionalInfo['notes'] || ''}
+                                onChange={(e) => handleInputChange('notes', e.target.value)}
+                                className="min-h-[80px]"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setReprocessDialogOpen(false)}
+                            disabled={reprocessing}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleReprocessApplication}
+                            disabled={reprocessing || Object.keys(additionalInfo).length === 0}
+                        >
+                            {reprocessing ? (
+                                <>
+                                    <div className="animate-spin mr-2 h-4 w-4 border-2 border-current border-t-transparent rounded-full" />
+                                    Processing...
+                                </>
+                            ) : (
+                                <>
+                                    <FaRedo className="mr-2 h-4 w-4" />
+                                    Start Reprocessing
+                                </>
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </SidebarProvider>
     );
 } 

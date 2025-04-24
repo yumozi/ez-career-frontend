@@ -61,14 +61,14 @@ export default function Apply() {
   // Check for active tasks on component mount
   useEffect(() => {
     const storedTaskData = localStorage.getItem(ACTIVE_TASK_KEY);
-    
+
     if (storedTaskData) {
       try {
         const taskData: StoredTaskData = JSON.parse(storedTaskData);
-        
+
         // Check if the stored task is recent (within last 24 hours)
         const isRecent = Date.now() - taskData.timestamp < 24 * 60 * 60 * 1000;
-        
+
         if (isRecent) {
           console.log("Found active task in localStorage:", taskData);
           setJobTitle(taskData.jobTitle);
@@ -76,7 +76,7 @@ export default function Apply() {
           setIsLoading(true);
           setStatusMessage(taskData.statusMessage || "Resuming task...");
           setCancelRequested(taskData.cancelRequested);
-          
+
           // Resume polling for the active task
           startPollingForResult(taskData.traceId);
         } else {
@@ -110,7 +110,7 @@ export default function Apply() {
       statusMessage: currentStatus,
       cancelRequested: isCancelling
     };
-    
+
     localStorage.setItem(ACTIVE_TASK_KEY, JSON.stringify(taskData));
     console.log("Saved task to localStorage:", taskData);
   };
@@ -118,7 +118,7 @@ export default function Apply() {
   // Update the stored task status
   const updateStoredTaskStatus = (status: string | null, isCancelling: boolean = false) => {
     if (!activeTraceId) return;
-    
+
     const storedTaskData = localStorage.getItem(ACTIVE_TASK_KEY);
     if (storedTaskData) {
       try {
@@ -128,7 +128,7 @@ export default function Apply() {
         if (isCancelling !== undefined) {
           taskData.cancelRequested = isCancelling;
         }
-        
+
         localStorage.setItem(ACTIVE_TASK_KEY, JSON.stringify(taskData));
         console.log("Updated stored task status:", status);
       } catch (error) {
@@ -151,7 +151,7 @@ export default function Apply() {
     const poll = async () => {
       if (!pollingRef.current) return; // Stop if polling was cancelled externally
       console.log(`Polling for ${traceId}...`);
-      
+
       // Get current cancelRequested status from localStorage to ensure we have the latest value
       let isCancelRequested = cancelRequested;
       try {
@@ -163,21 +163,21 @@ export default function Apply() {
       } catch (error) {
         console.error("Error reading cancellation status from localStorage:", error);
       }
-      
+
       try {
         const response = await fetch(`http://localhost:8000/tasks/result/${traceId}`);
 
         if (!response.ok) {
           if (response.status === 404) {
             console.log(`Task ${traceId} not found (likely finished or error). Stopping poll.`);
-            
+
             // Stop polling immediately
             if (pollingIntervalId) {
               clearInterval(pollingIntervalId);
               setPollingIntervalId(null);
               pollingRef.current = false;
             }
-            
+
             // Check if this was a cancellation request
             if (isCancelRequested) {
               resetApplicationState();
@@ -260,7 +260,7 @@ export default function Apply() {
     console.log("Resetting application state");
     // Clear localStorage data
     localStorage.removeItem(ACTIVE_TASK_KEY);
-    
+
     if (pollingIntervalId) {
       clearInterval(pollingIntervalId);
       setPollingIntervalId(null);
@@ -311,6 +311,14 @@ export default function Apply() {
       Do not use Indeed, as it requires captchas and you don't have the ability to solve them.
 
       Prioritize jobs that allow for quick applications without creating new accounts, or jobs with straightforward application processes first. 
+
+      You must use the UserAssistanceAgent to log any issues encountered during the application process.
+
+      You must use the UserProfileAgent to get the user's profile information.
+
+      You must ensure that the job application process is completed for each job, and that the application is submitted successfully. You must also ensure that the application is submitted to the correct company and job title. You should not submit the same application to multiple companies.
+
+      You should not end the process until you have submitted 10 applications.
 
       Your goal is to apply to as many jobs as possible, and as quickly as possible. Quantity is more important than quality.
 `;
@@ -374,7 +382,7 @@ export default function Apply() {
     setCancelRequested(true);
     // Update localStorage with cancellation status
     updateStoredTaskStatus(statusMsg, true);
-    
+
     console.log("Sending cancellation request for trace_id:", activeTraceId);
 
     try {
@@ -401,16 +409,16 @@ export default function Apply() {
         const statusMsg = "Cancellation queued. Waiting for background process...";
         setStatusMessage(statusMsg);
         updateStoredTaskStatus(statusMsg, true);
-        
+
         // Log successful cancellation request
         console.log("Cancellation request was successful, restarting polling to confirm completion");
-        
+
         // Show intermediate toast
         toast({
           title: "Cancellation Requested",
           description: "Cancellation request was sent. Waiting for the process to complete...",
         });
-        
+
         // Restart polling to confirm cancellation completion
         startPollingForResult(activeTraceId);
       } else {
