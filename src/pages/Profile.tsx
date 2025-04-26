@@ -20,6 +20,12 @@ interface ProfileData {
   email: string | null;
   phone: string | null;
   resume_url: string | null;
+  resume_text: string | null;
+}
+
+// Response type for the parse endpoint
+interface ParseResponse {
+  markdown: string;
 }
 
 const Profile = () => {
@@ -32,7 +38,8 @@ const Profile = () => {
     last_name: null,
     email: null,
     phone: null,
-    resume_url: null
+    resume_url: null,
+    resume_text: null
   });
   const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -52,7 +59,7 @@ const Profile = () => {
         // Use a simpler query structure
         const { data, error } = await supabase
           .from('profiles')
-          .select('first_name, last_name, email, phone, resume_url')
+          .select('first_name, last_name, email, phone, resume_url, resume_text')
           .eq('user_id', user.id)
           .limit(1);
 
@@ -77,7 +84,8 @@ const Profile = () => {
             last_name: data[0].last_name,
             email: data[0].email,
             phone: data[0].phone,
-            resume_url: data[0].resume_url
+            resume_url: data[0].resume_url,
+            resume_text: data[0].resume_text,
           });
         } else {
           console.log('No profile found, will use empty values');
@@ -106,6 +114,7 @@ const Profile = () => {
           email: profileData.email,
           phone: profileData.phone,
           resume_url: profileData.resume_url,
+          resume_text: profileData.resume_text,
           updated_at: new Date()
         })
         .eq('user_id', user.id);
@@ -187,32 +196,60 @@ const Profile = () => {
         .getPublicUrl(filePath);
 
       console.log('Resume URL generated:', urlData.publicUrl);
+      
+      let resumeMarkdownText = null;
+      
+      try {
+        // Create a FormData object for the parse endpoint
+        const formData = new FormData();
+        formData.append('file', file);
+        console.log('Form data:', formData);
+        // Call the parse endpoint to convert PDF to markdown
+        const parseResponse = await fetch(`http://localhost:8000/parse`, {
+          method: 'POST',
+          body: formData,
+        });
+        
+        if (!parseResponse.ok) {
+          throw new Error(`Parse API failed with status: ${parseResponse.status}`);
+        }
+        
+        const parseData: ParseResponse = await parseResponse.json();
+        resumeMarkdownText = parseData.markdown;
+        console.log('Resume parsed to markdown successfully');
+      } catch (parseError) {
+        console.error('Error parsing resume to markdown:', parseError);
+        // Continue with the upload process even if parsing fails
+        // We'll still save the URL
+      }
 
-      // Update profile with resume URL
+      // Update profile with resume URL and text
       setProfileData(prev => ({
         ...prev,
-        resume_url: urlData.publicUrl
+        resume_url: urlData.publicUrl,
+        resume_text: resumeMarkdownText
       }));
 
-      // Explicitly save the profile data with the new URL
+      // Explicitly save the profile data with the new URL and markdown text
       const { error: updateError } = await supabase
         .from('profiles')
         .update({
           resume_url: urlData.publicUrl,
+          resume_text: resumeMarkdownText,
           updated_at: new Date()
         })
         .eq('user_id', user.id);
 
       if (updateError) {
-        console.error('Error updating resume URL in profile:', updateError);
+        console.error('Error updating resume URL and text in profile:', updateError);
         throw updateError;
       }
 
-      console.log('Resume URL saved to profile successfully');
+      console.log('Resume URL and text saved to profile successfully');
 
       toast({
         title: "Resume Uploaded",
-        description: "Your resume has been uploaded successfully",
+        description: "Your resume has been uploaded and processed successfully",
       });
     } catch (error) {
       console.error('Error uploading resume:', error);
@@ -247,10 +284,11 @@ const Profile = () => {
         console.error('Error deleting resume from storage:', deleteError);
       }
 
-      // Update profile to remove resume URL
+      // Update profile to remove resume URL and text
       setProfileData(prev => ({
         ...prev,
-        resume_url: null
+        resume_url: null,
+        resume_text: null
       }));
 
       // Update the profile directly
@@ -258,12 +296,13 @@ const Profile = () => {
         .from('profiles')
         .update({
           resume_url: null,
+          resume_text: null,
           updated_at: new Date()
         })
         .eq('user_id', user.id);
 
       if (updateError) {
-        console.error('Error updating profile to remove resume URL:', updateError);
+        console.error('Error updating profile to remove resume URL and text:', updateError);
         throw updateError;
       }
 

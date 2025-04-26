@@ -58,6 +58,7 @@ The `profiles` table has the following columns:
 - `email`: Text field for the user's email
 - `phone`: Text field for the user's phone number
 - `resume_url`: Text field for the URL to the user's uploaded resume
+- `resume_text`: Text field storing the parsed markdown text of the user's resume
 - `created_at`: Timestamp for when the profile was created
 - `updated_at`: Timestamp for when the profile was last updated
 

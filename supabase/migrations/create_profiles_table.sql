@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   email text,
   phone text,
   resume_url text,
+  resume_text text,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );

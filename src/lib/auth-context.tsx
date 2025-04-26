@@ -43,6 +43,7 @@ const createUserProfile = async (userId: string) => {
           email: null,
           phone: null,
           resume_url: null,
+          resume_text: null,
           created_at: new Date(),
           updated_at: new Date()
         });
