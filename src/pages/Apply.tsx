@@ -308,7 +308,7 @@ export default function Apply() {
 
       Search and apply for relevant job opportunities on user's behalf based on this description, using job boards like LinkedIn or directly visiting company career pages that match the criteria.
 
-      Do not use Indeed, as it requires captchas and you don't have the ability to solve them.
+      Do not use Indeed/Glassdoor, as it requires captchas and you don't have the ability to solve them.
 
       Prioritize jobs that allow for quick applications without creating new accounts, or jobs with straightforward application processes first. 
 
