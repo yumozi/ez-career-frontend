@@ -287,82 +287,65 @@ export default function Apply() {
   };
 
   const handleApply = async () => {
-    if (!jobTitle.trim()) {
-      toast({
-        title: "Error",
-        description: "Please enter a job title before applying.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsLoading(true);
-    setStatusMessage("Sending application request...");
-    setCancelRequested(false);
-    setActiveTraceId(null); // Clear previous trace ID if any
-    if (pollingIntervalId) clearInterval(pollingIntervalId); // Clear previous polling
-    pollingRef.current = false;
-
-    try {
-      const taskString = `The user is looking for: "${jobTitle}"
-
-      Search and apply for relevant job opportunities on user's behalf based on this description, using job boards like LinkedIn or directly visiting company career pages that match the criteria.
-
-      Do not use Indeed/Glassdoor, as it requires captchas and you don't have the ability to solve them.
-
-      Prioritize jobs that allow for quick applications without creating new accounts, or jobs with straightforward application processes first. 
-
-      You must use the UserAssistanceAgent to log any issues encountered during the application process.
-
-      You must use the UserProfileAgent to get the user's profile information.
-
-      You must ensure that the job application process is completed for each job, and that the application is submitted successfully. You must also ensure that the application is submitted to the correct company and job title. You should not submit the same application to multiple companies.
-
-      You should not end the process until you have submitted 10 applications.
-
-      Your goal is to apply to as many jobs as possible, and as quickly as possible. Quantity is more important than quality.
-`;
-
-      const response = await fetch("http://localhost:8000/orchestrate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "accept": "application/json"
-        },
-        body: JSON.stringify({
-          task: taskString
-        })
-      });
-
-      if (response.status !== 202) { // Check for 202 Accepted
-        const errorText = await response.text();
-        throw new Error(`Error starting task: ${response.status} - ${errorText}`);
+      if (!jobTitle.trim()) {
+        toast({
+          title: "Error",
+          description: "Please enter a job title before applying.",
+          variant: "destructive",
+        });
+        return;
       }
 
-      const data = await response.json();
-      console.log("Orchestrate response:", data);
+      setIsLoading(true);
+      setStatusMessage("Sending application request...");
+      setCancelRequested(false);
+      setActiveTraceId(null); // Clear previous trace ID if any
+      if (pollingIntervalId) clearInterval(pollingIntervalId); // Clear previous polling
+      pollingRef.current = false;
 
-      if (data.trace_id) {
-        setActiveTraceId(data.trace_id);
-        // Save task information to localStorage
-        saveTaskToLocalStorage(data.trace_id, jobTitle, "Processing request... Starting application.", false);
-        // Start polling for results
-        startPollingForResult(data.trace_id);
-      } else {
-        throw new Error("Backend did not return a trace_id");
+      try {
+        const taskString = `"${jobTitle}".`;
+
+        const response = await fetch("http://localhost:8000/orchestrate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "accept": "application/json"
+          },
+          body: JSON.stringify({
+            task: taskString
+          })
+        });
+
+        if (response.status !== 202) { // Check for 202 Accepted
+          const errorText = await response.text();
+          throw new Error(`Error starting task: ${response.status} - ${errorText}`);
+        }
+
+        const data = await response.json();
+        console.log("Orchestrate response:", data);
+
+        if (data.trace_id) {
+          setActiveTraceId(data.trace_id);
+          // Save task information to localStorage
+          saveTaskToLocalStorage(data.trace_id, jobTitle, "Processing request... Starting application.", false);
+          // Start polling for results
+          startPollingForResult(data.trace_id);
+        } else {
+          throw new Error("Backend did not return a trace_id");
+        }
+
+      } catch (error) {
+        console.error("Error initiating application:", error);
+        toast({
+          title: "Application Initiation Failed",
+          description: `${error instanceof Error ? error.message : "Unknown error"}`,
+          variant: "destructive",
+        });
+        resetApplicationState(); // Reset UI on initiation failure
       }
-
-    } catch (error) {
-      console.error("Error initiating application:", error);
-      toast({
-        title: "Application Initiation Failed",
-        description: `${error instanceof Error ? error.message : "Unknown error"}`,
-        variant: "destructive",
-      });
-      resetApplicationState(); // Reset UI on initiation failure
-    }
-    // Note: setIsLoading(false) is now handled by resetApplicationState
-  };
+      // Note: setIsLoading(false) is now handled by resetApplicationState
+    };
 
   const cancelApplication = async () => {
     if (!activeTraceId) {
