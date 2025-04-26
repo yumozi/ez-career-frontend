@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS public.application_issues (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    application_id UUID REFERENCES public.applications(id) ON DELETE CASCADE,
+    application_id UUID,
     company TEXT NOT NULL,
     position TEXT NOT NULL,
     issue_type TEXT NOT NULL,
