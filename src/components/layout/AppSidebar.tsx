@@ -10,7 +10,7 @@ import {
   SidebarMenuItem,
   SidebarMenuButton
 } from "@/components/ui/sidebar";
-import { FaBriefcase, FaUser, FaChartBar, FaCog, FaFileAlt, FaBell, FaHistory, FaSignOutAlt, FaSearch, FaExclamationTriangle } from "react-icons/fa";
+import { FaBriefcase, FaUser, FaChartBar, FaCog, FaFileAlt, FaBell, FaHistory, FaSignOutAlt, FaSearch, FaExclamationTriangle, FaQuestionCircle } from "react-icons/fa";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth-context";
 
@@ -57,6 +57,15 @@ export function AppSidebar() {
                   <Link to="/apply" className={pathname === "/apply" ? "text-primary font-medium" : ""}>
                     <FaSearch className="h-4 w-4" />
                     <span>Apply</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
+                  <Link to="/questions" className={pathname === "/questions" ? "text-primary font-medium" : ""}>
+                    <FaQuestionCircle className="h-4 w-4" />
+                    <span>Questions</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
