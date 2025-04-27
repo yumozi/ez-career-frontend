@@ -14,6 +14,7 @@ import Notifications from "./pages/Notifications";
 import History from "./pages/History";
 import AgentAssistance from "./pages/AgentAssistance";
 import Questions from "./pages/Questions";
+import Onboarding from "./pages/Onboarding";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { AuthProvider } from "./lib/auth-context";
 
@@ -41,6 +42,7 @@ const App = () => (
               <Route path="/history" element={<History />} />
               <Route path="/agent-assistance" element={<AgentAssistance />} />
               <Route path="/questions" element={<Questions />} />
+              <Route path="/onboarding" element={<Onboarding />} />
             </Route>
 
             {/* Catch all route */}
