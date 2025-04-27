@@ -63,3 +63,5 @@ coverage
 # Temp files
 temp
 tmp 
+
+.vite
