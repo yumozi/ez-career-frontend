@@ -10,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { FaUpload, FaPlus, FaTimes, FaSpinner, FaCheck, FaArrowRight } from 'react-icons/fa';
 import { toast } from '@/components/ui/use-toast';
+import { supabase } from '@/lib/supabase';
 
 export default function InteractionPanel() {
     const {
@@ -690,7 +691,31 @@ export default function InteractionPanel() {
                     )}
 
                     {currentStep === 'completion' ? (
-                        <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={() => window.location.href = "/"}>
+                        <Button 
+                            className="flex-1 bg-green-600 hover:bg-green-700" 
+                            onClick={async () => {
+                                try {
+                                    // Get current user from auth context
+                                    const auth = await supabase.auth.getSession();
+                                    const user = auth.data.session?.user;
+                                    
+                                    if (user) {
+                                        // Ensure done_onboarding is set to true before redirecting
+                                        await supabase
+                                            .from('profiles')
+                                            .update({ done_onboarding: true })
+                                            .eq('user_id', user.id);
+                                    }
+                                    
+                                    // Redirect to dashboard
+                                    window.location.href = "/";
+                                } catch (error) {
+                                    console.error('Error setting onboarding complete:', error);
+                                    // Still redirect even if there's an error
+                                    window.location.href = "/";
+                                }
+                            }}
+                        >
                             Go to Dashboard <FaArrowRight className="ml-2 h-4 w-4" />
                         </Button>
                     ) : (

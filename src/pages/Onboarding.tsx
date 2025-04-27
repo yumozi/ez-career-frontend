@@ -10,17 +10,6 @@ import { FaArrowRight } from "react-icons/fa";
 import { toast } from "@/components/ui/use-toast";
 import { Toaster } from "@/components/ui/toaster";
 
-// Set cookie with expiration
-function setCookie(name: string, value: string, days: number) {
-    let expires = "";
-    if (days) {
-        const date = new Date();
-        date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
-        expires = "; expires=" + date.toUTCString();
-    }
-    document.cookie = name + "=" + (value || "") + expires + "; path=/";
-}
-
 export default function Onboarding() {
     const { user } = useAuth();
     const navigate = useNavigate();

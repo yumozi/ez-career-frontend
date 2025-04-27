@@ -7,12 +7,17 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { FaRobot, FaUser, FaInfo, FaCheckCircle } from 'react-icons/fa';
 import { useOnboarding, Message } from './OnboardingContext';
 import { format } from 'date-fns';
+import { useAuth } from '@/lib/auth-context';
+import { supabase } from '@/lib/supabase';
+import { toast } from '@/components/ui/use-toast';
 
 export default function ConversationPanel() {
     const navigate = useNavigate();
+    const { user } = useAuth();
     const {
         messages,
-        saveOnboardingData
+        saveOnboardingData,
+        currentStep
     } = useOnboarding();
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -22,9 +27,58 @@ export default function ConversationPanel() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
+    // If current step is 'completion', ensure done_onboarding is set to true
+    useEffect(() => {
+        const markOnboardingComplete = async () => {
+            if (currentStep === 'completion' && user) {
+                try {
+                    // Update profile to mark onboarding as done
+                    const { error } = await supabase
+                        .from('profiles')
+                        .update({ done_onboarding: true })
+                        .eq('user_id', user.id);
+                    
+                    if (error) {
+                        console.error('Error marking onboarding as complete:', error);
+                    }
+                } catch (err) {
+                    console.error('Failed to mark onboarding as complete:', err);
+                }
+            }
+        };
+        
+        markOnboardingComplete();
+    }, [currentStep, user]);
+
     const handleComplete = async () => {
-        const success = await saveOnboardingData();
-        if (success) {
+        try {
+            // Try to save all onboarding data first
+            const success = await saveOnboardingData();
+            
+            // Even if data saving fails, ensure done_onboarding is set to true
+            if (!success && user) {
+                try {
+                    await supabase
+                        .from('profiles')
+                        .update({ done_onboarding: true })
+                        .eq('user_id', user.id);
+                        
+                    toast({
+                        title: "Onboarding completed",
+                        description: "Some data may not have been saved, but your onboarding is marked as complete."
+                    });
+                } catch (error) {
+                    console.error('Error marking onboarding as complete:', error);
+                }
+            }
+            
+            // Navigate to dashboard regardless of saving status
+            navigate('/');
+            
+        } catch (error) {
+            console.error('Error during onboarding completion:', error);
+            
+            // Still try to navigate away even if there was an error
             navigate('/');
         }
     };

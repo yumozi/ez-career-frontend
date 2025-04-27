@@ -523,13 +523,14 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
                 throw new Error(`Error saving preferences: ${preferencesError.message}`);
             }
 
-            // Save profile update with resume info
+            // Save profile update with resume info and set done_onboarding to true
             const { error: profileError } = await supabase
                 .from('profiles')
                 .upsert({
                     user_id: user.id,
                     resume_url: onboardingData.resume.url,
                     resume_text: onboardingData.resume.parsedText,
+                    done_onboarding: true, // Set done_onboarding to true
                     updated_at: new Date().toISOString()
                 });
 
