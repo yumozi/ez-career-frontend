@@ -26,8 +26,8 @@ export default function Onboarding() {
     const navigate = useNavigate();
     const [isSkipping, setIsSkipping] = useState(false);
 
-    const handleSkipOnboarding = () => {
-        if (isSkipping) return; // Prevent multiple clicks
+    const handleSkipOnboarding = async () => {
+        if (isSkipping || !user) return; // Prevent multiple clicks or if no user
         setIsSkipping(true);
 
         // Show immediate visual feedback
@@ -37,15 +37,27 @@ export default function Onboarding() {
             duration: 2000,
         });
 
-        // Mark onboarding as skipped in both localStorage and cookies for redundancy
-        localStorage.setItem('onboarding_skipped', 'true');
-        setCookie('onboarding_skipped', 'true', 30); // 30 days
-
-        // Force a reload instead of using navigate
-        // This ensures a clean state and proper reading of the new cookie/localStorage values
-        setTimeout(() => {
-            window.location.href = "/";
-        }, 500); // Small delay to ensure storage is updated
+        try {
+            // Update the profile to mark onboarding as done
+            await supabase
+                .from('profiles')
+                .update({ done_onboarding: true })
+                .eq('user_id', user.id);
+                
+            // Force a reload instead of using navigate
+            // This ensures a clean state
+            setTimeout(() => {
+                window.location.href = "/";
+            }, 500); // Small delay to ensure storage is updated
+        } catch (error) {
+            console.error('Error updating onboarding status:', error);
+            setIsSkipping(false);
+            toast({
+                title: "Error",
+                description: "Failed to skip onboarding. Please try again.",
+                duration: 3000,
+            });
+        }
     };
 
     // Check if user has already completed onboarding
@@ -56,18 +68,12 @@ export default function Onboarding() {
             try {
                 const { data: profileData } = await supabase
                     .from('profiles')
-                    .select('*')
+                    .select('done_onboarding')
                     .eq('user_id', user.id)
                     .single();
 
-                const { data: preferencesData } = await supabase
-                    .from('job_preferences')
-                    .select('*')
-                    .eq('user_id', user.id)
-                    .single();
-
-                // If user has both profile and preferences data, redirect to dashboard
-                if (profileData && preferencesData) {
+                // If user has already completed onboarding, redirect to dashboard
+                if (profileData?.done_onboarding === true) {
                     navigate('/');
                 }
             } catch (error) {
