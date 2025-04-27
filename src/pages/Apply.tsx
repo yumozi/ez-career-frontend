@@ -19,6 +19,7 @@ interface StoredTaskData {
   timestamp: number;
   statusMessage: string | null;
   cancelRequested: boolean;
+  loopCount?: number; // Track completed task count
 }
 
 // Job suggestions for quick selection
@@ -57,6 +58,7 @@ export default function Apply() {
   const [pollingIntervalId, setPollingIntervalId] = useState<NodeJS.Timeout | null>(null);
   const { toast } = useToast();
   const pollingRef = useRef(false);
+  const loopCountRef = useRef(0); // Track completed tasks
 
   // Check for active tasks on component mount
   useEffect(() => {
@@ -76,6 +78,7 @@ export default function Apply() {
           setIsLoading(true);
           setStatusMessage(taskData.statusMessage || "Resuming task...");
           setCancelRequested(taskData.cancelRequested);
+          loopCountRef.current = taskData.loopCount || 0; // Restore loop count
 
           // Resume polling for the active task
           startPollingForResult(taskData.traceId);
@@ -108,7 +111,8 @@ export default function Apply() {
       jobTitle: currentJobTitle,
       timestamp: Date.now(),
       statusMessage: currentStatus,
-      cancelRequested: isCancelling
+      cancelRequested: isCancelling,
+      loopCount: loopCountRef.current // Save loop count
     };
 
     localStorage.setItem(ACTIVE_TASK_KEY, JSON.stringify(taskData));
@@ -128,11 +132,29 @@ export default function Apply() {
         if (isCancelling !== undefined) {
           taskData.cancelRequested = isCancelling;
         }
+        taskData.loopCount = loopCountRef.current; // Update loop count
 
         localStorage.setItem(ACTIVE_TASK_KEY, JSON.stringify(taskData));
         console.log("Updated stored task status:", status);
       } catch (error) {
         console.error("Error updating stored task status:", error);
+      }
+    }
+  };
+
+  // Update loop count in localStorage independently
+  const updateLoopCount = () => {
+    if (!activeTraceId) return;
+
+    const storedTaskData = localStorage.getItem(ACTIVE_TASK_KEY);
+    if (storedTaskData) {
+      try {
+        const taskData: StoredTaskData = JSON.parse(storedTaskData);
+        taskData.loopCount = loopCountRef.current;
+        localStorage.setItem(ACTIVE_TASK_KEY, JSON.stringify(taskData));
+        console.log("Updated loop count in localStorage:", loopCountRef.current);
+      } catch (error) {
+        console.error("Error updating loop count in localStorage:", error);
       }
     }
   };
@@ -145,8 +167,8 @@ export default function Apply() {
     }
     pollingRef.current = true;
     console.log("Starting polling for result:", traceId);
-    setStatusMessage("Processing request... Polling for results.");
-    updateStoredTaskStatus("Processing request... Polling for results.");
+    setStatusMessage("Processing request...");
+    updateStoredTaskStatus("Processing request...");
 
     const poll = async () => {
       if (!pollingRef.current) return; // Stop if polling was cancelled externally
@@ -180,13 +202,13 @@ export default function Apply() {
 
             // Check if this was a cancellation request
             if (isCancelRequested) {
-              resetApplicationState();
+              resetApplicationState(false); // Don't restart on cancellation
               toast({
                 title: "Application Cancelled",
                 description: "The application has been successfully cancelled.",
               });
             } else {
-              resetApplicationState();
+              resetApplicationState(); // May restart if autoLoop is true
               toast({
                 title: "Task Not Found",
                 description: "The task could not be found. It might have finished or encountered an error.",
@@ -208,27 +230,33 @@ export default function Apply() {
 
         switch (data.status) {
           case "pending":
-            const statusMsg = "Task is still processing...";
+            const statusMsg = "Processing task...";
             setStatusMessage(statusMsg);
             updateStoredTaskStatus(statusMsg);
             // Continue polling
             break;
           case "completed":
-            resetApplicationState();
+            loopCountRef.current += 1; // Increment loop counter
+            updateLoopCount(); // Save updated loop count to localStorage
+            const shouldRestart = !isCancelRequested;
+            
+            // Clear current state but restart if not canceled
+            resetApplicationState(shouldRestart);
+            
             toast({
               title: "Application Submitted",
               description: data.result || `Your application for ${jobTitle} jobs has been submitted successfully.`,
             });
             break;
           case "cancelled":
-            resetApplicationState();
+            resetApplicationState(false); // Don't restart on cancellation
             toast({
               title: "Application Cancelled",
               description: data.result || "The application process was cancelled.",
             });
             break;
           case "failed":
-            resetApplicationState();
+            resetApplicationState(false); // Don't restart on failure
             toast({
               title: "Application Failed",
               description: data.result || `An error occurred during the application process.`,
@@ -238,7 +266,7 @@ export default function Apply() {
           default:
             console.error("Unknown task status:", data.status);
             setStatusMessage(`Unknown task status: ${data.status}. Stopping poll.`);
-            resetApplicationState();
+            resetApplicationState(false); // Don't restart on unknown status
         }
       } catch (error) {
         console.error("Polling fetch error:", error);
@@ -256,8 +284,8 @@ export default function Apply() {
     setPollingIntervalId(intervalId);
   };
 
-  const resetApplicationState = () => {
-    console.log("Resetting application state");
+  const resetApplicationState = (shouldRestartTask = true) => {
+    console.log("Resetting application state", shouldRestartTask ? "(with auto-restart)" : "");
     // Clear localStorage data
     localStorage.removeItem(ACTIVE_TASK_KEY);
 
@@ -266,20 +294,22 @@ export default function Apply() {
       setPollingIntervalId(null);
       pollingRef.current = false;
     }
-    setIsLoading(false);
-    setActiveTraceId(null);
-    setStatusMessage(null);
-    setCancelRequested(false);
-  };
-
-  // Simplified this - now just force resets
-  const forceResetApplicationState = () => {
-    console.log("Forcing application state reset");
-    resetApplicationState();
-    toast({
-      title: "Application Reset",
-      description: "The application state has been reset.",
-    });
+    
+    // If we're not restarting, fully reset the UI
+    if (!shouldRestartTask) {
+      setIsLoading(false);
+      setActiveTraceId(null);
+      setStatusMessage(null);
+      setCancelRequested(false);
+      loopCountRef.current = 0;
+      return;
+    }
+    
+    // For auto-restart, we keep the job title and initiate a new task after a small delay
+    setTimeout(() => {
+      console.log(`Auto-restarting task (count: ${loopCountRef.current})`);
+      handleApply();
+    }, 1500);
   };
 
   const handleSuggestionClick = (suggestion: string) => {
@@ -328,7 +358,7 @@ export default function Apply() {
         if (data.trace_id) {
           setActiveTraceId(data.trace_id);
           // Save task information to localStorage
-          saveTaskToLocalStorage(data.trace_id, jobTitle, "Processing request... Starting application.", false);
+          saveTaskToLocalStorage(data.trace_id, jobTitle, "Processing request...", false);
           // Start polling for results
           startPollingForResult(data.trace_id);
         } else {
@@ -512,41 +542,67 @@ export default function Apply() {
                     <div className="space-y-6">
                       {isLoading && (
                         <Alert className="bg-blue-50 border-blue-200">
-                          <div className="flex justify-between items-center">
-                            <div className="flex items-center gap-2">
-                              <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-                              <AlertTitle>Processing</AlertTitle>
-                            </div>
-                            <div className="flex gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={cancelApplication}
-                                disabled={cancelRequested}
-                                className="h-8 px-2 text-orange-600 hover:text-orange-800 hover:bg-orange-50"
-                              >
-                                <X className="h-4 w-4 mr-1" />
-                                {cancelRequested ? "Cancelling..." : "Cancel"}
-                              </Button>
-                              {cancelRequested && (
+                          <div className="flex flex-col space-y-2">
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center">
+                                <div className="bg-blue-100 p-2 rounded-full mr-3">
+                                  <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                                </div>
+                                <div>
+                                  <div className="flex items-center">
+                                    <AlertTitle className="text-blue-700 font-medium">Processing Applications</AlertTitle>
+                                  </div>
+                                  <AlertDescription className="text-blue-600 mt-1">
+                                    {statusMessage || "Please wait..."}
+                                  </AlertDescription>
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={forceKillApplication}
-                                  className="h-8 px-2 text-red-700 hover:text-red-900 hover:bg-red-100"
+                                  onClick={cancelApplication}
+                                  disabled={cancelRequested}
+                                  className="h-8 px-2 text-orange-600 hover:text-orange-800 hover:bg-orange-50"
                                 >
                                   <X className="h-4 w-4 mr-1" />
-                                  Force Kill
+                                  {cancelRequested ? "Cancelling..." : "Cancel"}
                                 </Button>
-                              )}
+                                {cancelRequested && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={forceKillApplication}
+                                    className="h-8 px-2 text-red-700 hover:text-red-900 hover:bg-red-100"
+                                  >
+                                    <X className="h-4 w-4 mr-1" />
+                                    Force Kill
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center justify-between mt-1 pt-2 border-t border-blue-200">
+                              <div className="text-gray-500 text-xs flex items-center">
+                                {activeTraceId && (
+                                  <>
+                                    <span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded-l-md">Task #{loopCountRef.current + 1}</span>
+                                    <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-r-md">ID: {activeTraceId}</span>
+                                  </>
+                                )}
+                              </div>
+                              
+                              <div className="flex items-center">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                  <span className="relative flex h-2 w-2 mr-1.5">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                                  </span>
+                                  Auto-looping
+                                </span>
+                              </div>
                             </div>
                           </div>
-                          <AlertDescription>{statusMessage || "Please wait..."}</AlertDescription>
-                          {activeTraceId && (
-                            <div className="mt-2 text-xs text-gray-500">
-                              Task ID: {activeTraceId}
-                            </div>
-                          )}
                         </Alert>
                       )}
 
