@@ -41,7 +41,7 @@ const App = () => (
               <Route path="/notifications" element={<Notifications />} />
               <Route path="/history" element={<History />} />
               <Route path="/agent-assistance" element={<AgentAssistance />} />
-              <Route path="/questions" element={<Questions />} />
+              {/* <Route path="/questions" element={<Questions />} /> */}
               <Route path="/onboarding" element={<Onboarding />} />
             </Route>
 

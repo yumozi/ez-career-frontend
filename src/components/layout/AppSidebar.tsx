@@ -61,14 +61,14 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
-              <SidebarMenuItem>
+              {/* <SidebarMenuItem>
                 <SidebarMenuButton asChild>
                   <Link to="/questions" className={pathname === "/questions" ? "text-primary font-medium" : ""}>
                     <FaQuestionCircle className="h-4 w-4" />
                     <span>Questions</span>
                   </Link>
                 </SidebarMenuButton>
-              </SidebarMenuItem>
+              </SidebarMenuItem> */}
 
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
@@ -100,7 +100,7 @@ export function AppSidebar() {
                 <SidebarMenuButton asChild>
                   <Link to="/agent-assistance" className={pathname === "/agent-assistance" ? "text-primary font-medium" : ""}>
                     <FaExclamationTriangle className="h-4 w-4" />
-                    <span>Agent Assistance</span>
+                    <span>Agent Questions</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

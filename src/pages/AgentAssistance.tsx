@@ -37,6 +37,7 @@ export default function AgentAssistance() {
     const [reprocessDialogOpen, setReprocessDialogOpen] = useState(false);
     const [additionalInfo, setAdditionalInfo] = useState<Record<string, string>>({});
     const [reprocessing, setReprocessing] = useState(false);
+    const [displayedIssueTypes] = useState<string[]>(["missing_information"]);
     const { toast } = useToast();
     const { user } = useAuth();
 
@@ -74,12 +75,35 @@ export default function AgentAssistance() {
         if (!selectedIssue) return;
 
         try {
+            // Get the backend URL from env var or use default
+            const backendUrl = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:8000';
+            
+            // Generate embedding for issue_details
+            const embeddingResponse = await fetch(`${backendUrl}/embedding`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    text: selectedIssue.issue_details
+                }),
+            });
+
+            if (!embeddingResponse.ok) {
+                throw new Error('Failed to generate embedding for issue details');
+            }
+
+            const embeddingData = await embeddingResponse.json();
+            const embedding = embeddingData.embedding;
+
+            // Update Supabase with the embedding and other fields
             const { error } = await supabase
                 .from('application_issues')
                 .update({
                     status: 'resolved',
                     resolved_at: new Date().toISOString(),
-                    resolution_note: resolutionNote
+                    resolution_note: resolutionNote,
+                    embedding: embedding
                 })
                 .eq('id', selectedIssue.id);
 
@@ -88,8 +112,8 @@ export default function AgentAssistance() {
             }
 
             toast({
-                title: "Issue Resolved",
-                description: "The application can now continue processing",
+                title: "Question Answered",
+                description: "This will help the agent process applications more smoothly in the future.",
             });
 
             fetchIssues();
@@ -196,8 +220,8 @@ export default function AgentAssistance() {
         }
     };
 
-    const getPendingIssues = () => issues.filter(issue => issue.status === 'pending');
-    const getResolvedIssues = () => issues.filter(issue => issue.status === 'resolved');
+    const getPendingIssues = () => issues.filter(issue => issue.status === 'pending' && displayedIssueTypes.includes(issue.issue_type));
+    const getResolvedIssues = () => issues.filter(issue => issue.status === 'resolved' && displayedIssueTypes.includes(issue.issue_type));
 
     const formatDate = (dateString: string) => {
         return new Date(dateString).toLocaleDateString('en-US', {
@@ -227,14 +251,10 @@ export default function AgentAssistance() {
                 <CardHeader className="pb-2">
                     <div className="flex justify-between items-center">
                         <CardTitle className="text-lg">{issue.position} at {issue.company}</CardTitle>
-                        <Badge variant={issue.status === 'pending' ? 'destructive' : 'secondary'}>
-                            {issue.status === 'pending' ? 'Needs Attention' : 'Resolved'}
-                        </Badge>
                     </div>
-                    <CardDescription>Created: {formatDate(issue.created_at)}</CardDescription>
+                    <CardDescription>{formatDate(issue.created_at)}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <p className="font-medium">{issue.issue_type}</p>
                     <p className="text-sm text-muted-foreground line-clamp-2">{issue.issue_details}</p>
                 </CardContent>
             </Card>
@@ -251,9 +271,9 @@ export default function AgentAssistance() {
                         <div className="container mt-8 px-4 sm:px-6">
                             <div className="flex justify-between items-center mb-6">
                                 <div>
-                                    <h1 className="text-3xl font-bold tracking-tight">Agent Assistance</h1>
+                                    <h1 className="text-3xl font-bold tracking-tight">Agent Questions</h1>
                                     <p className="text-muted-foreground">
-                                        Resolve issues that require your input to continue application processes
+                                        Your agent found questions it couldn't answer. Help fill in the missing info to improve future applications.
                                     </p>
                                 </div>
                                 <Button onClick={fetchIssues} variant="outline">Refresh</Button>
@@ -269,8 +289,8 @@ export default function AgentAssistance() {
                             ) : (
                                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                                     <div className="lg:col-span-1">
-                                        <Tabs defaultValue="pending">
-                                            <TabsList className="grid w-full grid-cols-2 mb-4">
+                                        <Tabs defaultValue="pending" className="flex flex-col h-full">
+                                            <TabsList className="grid w-full grid-cols-2 mb-4 sticky top-0 z-10">
                                                 <TabsTrigger value="pending">
                                                     <div className="flex items-center gap-2">
                                                         <FaExclamationTriangle className="h-4 w-4" />
@@ -284,12 +304,14 @@ export default function AgentAssistance() {
                                                     </div>
                                                 </TabsTrigger>
                                             </TabsList>
-                                            <TabsContent value="pending" className="mt-0">
-                                                {renderIssueList(getPendingIssues())}
-                                            </TabsContent>
-                                            <TabsContent value="resolved" className="mt-0">
-                                                {renderIssueList(getResolvedIssues())}
-                                            </TabsContent>
+                                            <div className="overflow-y-auto h-[calc(100vh-220px)]">
+                                                <TabsContent value="pending" className="mt-0 h-full">
+                                                    {renderIssueList(getPendingIssues())}
+                                                </TabsContent>
+                                                <TabsContent value="resolved" className="mt-0 h-full">
+                                                    {renderIssueList(getResolvedIssues())}
+                                                </TabsContent>
+                                            </div>
                                         </Tabs>
                                     </div>
 
@@ -298,7 +320,7 @@ export default function AgentAssistance() {
                                             <Card>
                                                 <CardHeader>
                                                     <div className="flex justify-between items-center">
-                                                        <CardTitle>{selectedIssue.position} at {selectedIssue.company}</CardTitle>
+                                                        <CardTitle className="text-2xl max-w-[70%] pr-2">{selectedIssue.position} at {selectedIssue.company}</CardTitle>
                                                         <Badge variant={selectedIssue.status === 'pending' ? 'destructive' : 'secondary'}>
                                                             {selectedIssue.status === 'pending' ? 'Needs Attention' : 'Resolved'}
                                                         </Badge>
@@ -318,10 +340,9 @@ export default function AgentAssistance() {
                                                 </CardHeader>
                                                 <CardContent>
                                                     <div className="mb-4">
-                                                        <h3 className="text-lg font-medium mb-2">Issue Details</h3>
+                                                        <h3 className="text-lg font-medium mb-2">Question Details</h3>
                                                         <Alert variant="destructive" className="mb-4">
                                                             <FaExclamationTriangle className="h-4 w-4" />
-                                                            <AlertTitle>{selectedIssue.issue_type}</AlertTitle>
                                                             <AlertDescription>
                                                                 {selectedIssue.issue_details}
                                                             </AlertDescription>
@@ -342,12 +363,12 @@ export default function AgentAssistance() {
 
                                                         {selectedIssue.status === 'pending' && (
                                                             <div className="mt-6">
-                                                                <h3 className="text-lg font-medium mb-2">Resolve Issue</h3>
+                                                                <h3 className="text-lg font-medium mb-2">Answer Question</h3>
                                                                 <p className="text-sm text-muted-foreground mb-4">
-                                                                    Provide resolution details before marking this issue as resolved.
+                                                                    Provide the necessary information and mark this question as resolved.
                                                                 </p>
                                                                 <Textarea
-                                                                    placeholder="Describe how you've resolved this issue..."
+                                                                    placeholder="Describe any information relevant to the question..."
                                                                     className="min-h-[120px]"
                                                                     value={resolutionNote}
                                                                     onChange={(e) => setResolutionNote(e.target.value)}
