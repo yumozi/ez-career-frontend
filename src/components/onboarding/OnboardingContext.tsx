@@ -79,7 +79,7 @@ interface OnboardingContextType {
     updateJobPreference: (data: Partial<JobPreference>, recordInChat?: boolean) => void;
     addSkill: (skill: UserSkill) => void;
     removeSkill: (skillName: string) => void;
-    uploadResume: (file: File) => Promise<void>;
+    uploadResume: (file: File, resumeUrl?: string, parsedText?: string) => Promise<void>;
     saveOnboardingData: () => Promise<boolean>;
     setCurrentInteraction: (interaction: ReactNode) => void;
 }
@@ -135,37 +135,37 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         setMessages(prev => [...prev, newMessage]);
     };
 
-    // Step progression map to calculate progress percentage
-    const stepProgressMap: Record<OnboardingStep, number> = {
-        welcome: 0,
-        job_titles: 10,
-        experience_level: 20,
-        salary_expectations: 30,
-        job_search_status: 40,
-        resume_upload: 50,
-        resume_analysis: 60,
-        skills_verification: 70,
-        location_preferences: 80,
-        remote_preferences: 85,
-        industry_preferences: 90,
-        completion: 100
-    };
-
     // Order of steps
     const stepOrder: OnboardingStep[] = [
         'welcome',
+        'resume_upload',
+        'resume_analysis',
         'job_titles',
         'experience_level',
         'salary_expectations',
         'job_search_status',
-        'resume_upload',
-        'resume_analysis',
         'skills_verification',
         'location_preferences',
         'remote_preferences',
         'industry_preferences',
         'completion'
     ];
+
+    // Step progression map to calculate progress percentage
+    const stepProgressMap: Record<OnboardingStep, number> = {
+        welcome: 0,
+        resume_upload: 10,
+        resume_analysis: 20,
+        job_titles: 30,
+        experience_level: 40,
+        salary_expectations: 50,
+        job_search_status: 60,
+        skills_verification: 70,
+        location_preferences: 80,
+        remote_preferences: 90,
+        industry_preferences: 95,
+        completion: 100
+    };
 
     const goToNextStep = () => {
         const currentIndex = stepOrder.indexOf(currentStep);
@@ -178,8 +178,15 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             let nextMessage = '';
 
             switch (nextStep) {
+                case 'resume_upload':
+                    nextMessage = 'Let\'s start by uploading your resume so I can help personalize your profile. I accept PDF formats.';
+                    break;
+                case 'resume_analysis':
+                    nextMessage = 'Thank you! I\'m analyzing your resume now...';
+                    setAgentStatus('processing_resume');
+                    break;
                 case 'job_titles':
-                    nextMessage = 'What job titles or roles are you interested in?';
+                    nextMessage = 'Based on your resume, here are some suggested job titles. You can select from these or add your own.';
                     break;
                 case 'experience_level':
                     nextMessage = 'What is your current experience level?';
@@ -189,13 +196,6 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
                     break;
                 case 'job_search_status':
                     nextMessage = 'What is your current job search status?';
-                    break;
-                case 'resume_upload':
-                    nextMessage = 'Please upload your resume so I can help you better. I accept PDF formats.';
-                    break;
-                case 'resume_analysis':
-                    nextMessage = 'Thank you! I\'m analyzing your resume now...';
-                    setAgentStatus('processing_resume');
                     break;
                 case 'skills_verification':
                     nextMessage = 'Based on your resume, I\'ve identified these skills. Please confirm them and add any missing ones.';
@@ -228,6 +228,28 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
     const goToPreviousStep = () => {
         const currentIndex = stepOrder.indexOf(currentStep);
         if (currentIndex > 0) {
+            // Special case: If we're on job_titles and going back, but no resume was uploaded,
+            // jump back to resume_upload instead of resume_analysis
+            if (currentStep === 'job_titles') {
+                const hasResume = onboardingData.resume && onboardingData.resume.url && onboardingData.resume.url.length > 0;
+                
+                if (!hasResume) {
+                    // No resume was uploaded, go directly to resume_upload step
+                    const resumeUploadIndex = stepOrder.indexOf('resume_upload');
+                    setCurrentStep('resume_upload');
+                    setProgressPercentage(stepProgressMap['resume_upload']);
+                    
+                    // Add a system message about going back
+                    addMessage({
+                        sender: 'system',
+                        content: 'Going back to resume upload...',
+                        type: 'text'
+                    });
+                    return;
+                }
+            }
+            
+            // Normal case: go to the previous step
             const prevStep = stepOrder[currentIndex - 1];
             setCurrentStep(prevStep);
             setProgressPercentage(stepProgressMap[prevStep]);
@@ -364,7 +386,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         });
     };
 
-    const uploadResume = async (file: File) => {
+    const uploadResume = async (file: File, resumeUrl?: string, parsedText?: string) => {
         if (!user) return;
 
         try {
@@ -378,34 +400,40 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
                 metadata: { fileName: file.name, fileSize: file.size }
             });
 
-            // Upload file to Supabase storage
-            // IMPORTANT: Follow the path structure defined in the existing storage policy
-            // The policy expects: 'resumes' as the first folder segment
-            const filePath = `resumes/${user.id}/${Date.now()}-${file.name}`;
-            console.log(`Uploading file to path: ${filePath}`);
+            let publicUrl = resumeUrl;
+            let resumeParsedText = parsedText;
 
-            const { error: uploadError, data } = await supabase.storage
-                .from('user-uploads')
-                .upload(filePath, file, {
-                    upsert: true,
-                    contentType: file.type,
-                });
+            // If no URL is provided, upload the file to storage
+            if (!publicUrl) {
+                // Upload file to Supabase storage
+                // IMPORTANT: Follow the path structure defined in the existing storage policy
+                // The policy expects: 'resumes' as the first folder segment
+                const filePath = `resumes/${user.id}/${Date.now()}-${file.name}`;
+                console.log(`Uploading file to path: ${filePath}`);
 
-            if (uploadError) {
-                console.error('Storage upload error:', uploadError);
-                throw new Error(`Error uploading file: ${uploadError.message}`);
+                const { error: uploadError, data } = await supabase.storage
+                    .from('user-uploads')
+                    .upload(filePath, file, {
+                        upsert: true,
+                        contentType: file.type,
+                    });
+
+                if (uploadError) {
+                    console.error('Storage upload error:', uploadError);
+                    throw new Error(`Error uploading file: ${uploadError.message}`);
+                }
+
+                console.log('File upload successful:', data);
+
+                // Get the public URL
+                const { data: urlData } = supabase.storage
+                    .from('user-uploads')
+                    .getPublicUrl(filePath);
+
+                publicUrl = urlData.publicUrl;
+                console.log('Resume URL generated:', publicUrl);
             }
-
-            console.log('File upload successful:', data);
-
-            // Get the public URL
-            const { data: urlData } = supabase.storage
-                .from('user-uploads')
-                .getPublicUrl(filePath);
-
-            const publicUrl = urlData.publicUrl;
-            console.log('Public URL:', publicUrl);
-
+            
             // Add a system message about processing
             addMessage({
                 sender: 'system',
@@ -413,73 +441,43 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
                 type: 'text',
             });
 
-            // For the demo, we'll simulate PDF parsing instead of calling the backend
-            // Update onboarding data with resume info immediately 
-            // (don't wait for the timeout which might be failing)
-            const simulatedParsedText = `# Resume for ${user.email}\n\n## Skills\n- React\n- TypeScript\n- JavaScript\n- Node.js\n\n## Experience\n- Software Engineer, Example Company (2020-Present)\n- Junior Developer, Another Company (2018-2020)`;
-
+            // Update onboardingData with resume info
             setOnboardingData(prev => ({
                 ...prev,
                 resume: {
                     url: publicUrl,
-                    parsedText: simulatedParsedText,
+                    parsedText: resumeParsedText,
                     fileName: file.name
                 }
             }));
 
-            // Add an agent message about successful parsing
+            // Update the profile with resume_url and resume_text
+            const { error: profileError } = await supabase
+                .from('profiles')
+                .update({
+                    resume_url: publicUrl,
+                    resume_text: resumeParsedText,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('user_id', user.id);
+
+            if (profileError) {
+                console.error('Error updating profile with resume data:', profileError);
+                // Continue anyway - we'll rely on the onboarding data
+            }
+
+            // Add an agent message about successful upload
             addMessage({
                 sender: 'agent',
-                content: 'I\'ve successfully processed your resume and I\'m now analyzing it to extract your skills and experience.',
+                content: resumeParsedText 
+                    ? 'I\'ve successfully processed your resume and I\'m now analyzing it to extract your skills and experience.'
+                    : 'Your resume has been uploaded successfully. You can now continue with your profile setup.',
                 type: 'text',
             });
 
-            // Extract skills from resume using AI (simulated)
-            setAgentStatus('analyzing_data');
-            console.log('Starting resume analysis...');
-
-            // Simulate extracting skills immediately instead of with timeouts
-            const mockSkills = [
-                { skill_name: 'React', is_highlighted: true, source: 'resume' as const },
-                { skill_name: 'TypeScript', is_highlighted: true, source: 'resume' as const },
-                { skill_name: 'JavaScript', is_highlighted: false, source: 'resume' as const },
-                { skill_name: 'Node.js', is_highlighted: false, source: 'resume' as const },
-            ];
-
-            // Update the user skills
-            setOnboardingData(prev => ({
-                ...prev,
-                userSkills: mockSkills
-            }));
-
-            // Add a message about found skills
-            addMessage({
-                sender: 'agent',
-                content: `I found ${mockSkills.length} skills in your resume: ${mockSkills.map(s => s.skill_name).join(', ')}`,
-                type: 'text',
-            });
-
-            console.log('Analysis complete, moving to next step...');
+            // Set agent status for the next step
             setAgentStatus('waiting_for_input');
             goToNextStep();
-
-            // Add a safety timeout to force continue if something went wrong
-            setTimeout(() => {
-                // If we're still on resume_analysis step after 5 seconds, force continue
-                if (currentStep === 'resume_analysis') {
-                    console.log('Safety timeout: Forcing step advancement');
-                    setAgentStatus('waiting_for_input');
-                    setCurrentStep('skills_verification');
-                    setProgressPercentage(stepProgressMap['skills_verification']);
-
-                    // Add a message about the forced continuation
-                    addMessage({
-                        sender: 'system',
-                        content: 'Continuing to next step...',
-                        type: 'text',
-                    });
-                }
-            }, 5000);
 
         } catch (error) {
             console.error('Error uploading resume:', error);
@@ -526,13 +524,13 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             // Save profile update with resume info and set done_onboarding to true
             const { error: profileError } = await supabase
                 .from('profiles')
-                .upsert({
-                    user_id: user.id,
+                .update({
                     resume_url: onboardingData.resume.url,
                     resume_text: onboardingData.resume.parsedText,
                     done_onboarding: true, // Set done_onboarding to true
                     updated_at: new Date().toISOString()
-                });
+                })
+                .eq('user_id', user.id);
 
             if (profileError) {
                 throw new Error(`Error updating profile: ${profileError.message}`);
