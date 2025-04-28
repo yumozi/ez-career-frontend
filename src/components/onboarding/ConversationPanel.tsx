@@ -257,20 +257,8 @@ export default function ConversationPanel() {
 
     return (
         <div className="flex flex-col h-full bg-background">
-            {/* Chat header */}
-            <div className="py-4 px-6 flex items-center gap-3 border-b">
-                <Avatar className="h-9 w-9 bg-primary/10">
-                    <AvatarFallback className="bg-primary/10 text-primary">AI</AvatarFallback>
-                    <AvatarImage src="/agent-avatar.png" />
-                </Avatar>
-                <div>
-                    <h2 className="text-lg font-medium">EZ Career Assistant</h2>
-                    <p className="text-xs text-muted-foreground">AI-powered career guidance</p>
-                </div>
-            </div>
-
             {/* Messages area */}
-            <ScrollArea className="flex-1 px-6 py-6">
+            <ScrollArea className="flex-1 px-6 pb-6 pt-12">
                 <div className="space-y-6 mb-4 max-w-3xl mx-auto">
                     <AnimatePresence initial={false}>
                         {messages.map((message) => (
@@ -360,25 +348,25 @@ export default function ConversationPanel() {
                 </div>
             )}
 
-            {/* Input area with prompt */}
-            <div className="border-t p-4">
-                <div className="flex gap-2 max-w-3xl mx-auto">
+            {/* Floating bubble input area */}
+            <div className="px-40 py-4 w-full flex justify-center relative mb-3">
+                <div className="w-full bg-white shadow-lg rounded-full relative flex items-center overflow-hidden">
                     <Input
                         ref={inputRef}
                         value={userInput}
                         onChange={(e) => setUserInput(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
                         placeholder="Type a message to the assistant..."
-                        className="flex-1 bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus-visible:ring-primary"
+                        className="flex-1 h-14 px-6 bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 text-base"
                         disabled={isSending || agentStatus === 'processing_resume' || agentStatus === 'analyzing_data'}
                     />
                     <Button
                         onClick={handleSendMessage}
                         disabled={!userInput.trim() || isSending || agentStatus === 'processing_resume' || agentStatus === 'analyzing_data'}
-                        className="bg-primary hover:bg-primary/90"
+                        className="mr-2 h-10 w-10 rounded-full bg-blue-600 hover:bg-blue-700 p-0 flex items-center justify-center"
                     >
                         {isSending ? (
-                            <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                         ) : (
                             <FaPaperPlane className="h-4 w-4" />
                         )}
