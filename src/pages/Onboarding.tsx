@@ -32,7 +32,7 @@ export default function Onboarding() {
                 .from('profiles')
                 .update({ done_onboarding: true })
                 .eq('user_id', user.id);
-                
+
             // Force a reload instead of using navigate
             // This ensures a clean state
             setTimeout(() => {
