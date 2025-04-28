@@ -257,20 +257,8 @@ export default function ConversationPanel() {
 
     return (
         <div className="flex flex-col h-full bg-background">
-            {/* Chat header */}
-            <div className="py-4 px-6 flex items-center gap-3 border-b">
-                <Avatar className="h-9 w-9 bg-primary/10">
-                    <AvatarFallback className="bg-primary/10 text-primary">AI</AvatarFallback>
-                    <AvatarImage src="/agent-avatar.png" />
-                </Avatar>
-                <div>
-                    <h2 className="text-lg font-medium">EZ Career Assistant</h2>
-                    <p className="text-xs text-muted-foreground">AI-powered career guidance</p>
-                </div>
-            </div>
-
-            {/* Messages area */}
-            <ScrollArea className="flex-1 px-6 py-6">
+            {/* Messages area - adding more top padding */}
+            <ScrollArea className="flex-1 px-6 pb-6 pt-12">
                 <div className="space-y-6 mb-4 max-w-3xl mx-auto">
                     <AnimatePresence initial={false}>
                         {messages.map((message) => (
