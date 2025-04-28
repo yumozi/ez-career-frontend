@@ -508,14 +508,43 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
                 type: 'text',
             });
 
-            // Save job preferences
-            const { error: preferencesError } = await supabase
+            // First, check if job preferences already exist for this user
+            const { data: existingPreferences, error: checkError } = await supabase
                 .from('job_preferences')
-                .upsert({
-                    user_id: user.id,
-                    ...onboardingData.jobPreference,
-                    updated_at: new Date().toISOString()
-                });
+                .select('user_id')
+                .eq('user_id', user.id)
+                .maybeSingle();
+                
+            if (checkError) {
+                console.error('Error checking existing job preferences:', checkError);
+                // Continue anyway - we'll try the upsert
+            }
+
+            // If preferences exist, update them; otherwise, insert new ones
+            let preferencesError;
+            if (existingPreferences) {
+                // Update existing preferences
+                const { error } = await supabase
+                    .from('job_preferences')
+                    .update({
+                        ...onboardingData.jobPreference,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('user_id', user.id);
+                    
+                preferencesError = error;
+            } else {
+                // Insert new preferences
+                const { error } = await supabase
+                    .from('job_preferences')
+                    .insert({
+                        user_id: user.id,
+                        ...onboardingData.jobPreference,
+                        updated_at: new Date().toISOString()
+                    });
+                    
+                preferencesError = error;
+            }
 
             if (preferencesError) {
                 throw new Error(`Error saving preferences: ${preferencesError.message}`);
