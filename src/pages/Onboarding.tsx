@@ -138,38 +138,40 @@ function OnboardingContent() {
 
                         {/* Content container */}
                         <div className="absolute inset-0 bg-blue-50 rounded-tr-3xl rounded-br-3xl z-10 flex flex-col">
-                            {/* Header moved to blue background */}
-                            <div className="py-6 px-8">
-                                <div className="flex items-center gap-4 mb-4">
-                                    <div className="flex-shrink-0 bg-blue-100 p-3 rounded-full">
-                                        <FaNotesMedical className="h-6 w-6 text-blue-600" />
+                            {/* Header moved to blue background - improved structure with more padding */}
+                            <div className="py-8 px-10">
+                                <div className="flex items-center gap-5 mb-6">
+                                    <div className="flex-shrink-0 bg-blue-100 p-3.5 rounded-full shadow-sm">
+                                        <FaNotesMedical className="h-7 w-7 text-blue-600" />
                                     </div>
                                     <div>
-                                        <h2 className="text-xl font-medium">We are taking notes for your job preference</h2>
-                                        <p className="text-sm text-slate-500">Please complete all sections</p>
+                                        <h2 className="text-2xl font-medium text-gray-800 mb-1">We are taking notes for your job preference</h2>
+                                        {/* <p className="text-sm text-slate-500">Please complete all sections</p> */}
                                     </div>
                                 </div>
 
-                                <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                                    <div
-                                        className="h-full bg-blue-500 rounded-full transition-all duration-300 ease-out"
-                                        style={{ width: `${progressPercentage}%` }}
-                                    ></div>
+                                <div className="mt-3">
+                                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden shadow-inner">
+                                        <div
+                                            className="h-full bg-blue-500 rounded-full transition-all duration-300 ease-out"
+                                            style={{ width: `${progressPercentage}%` }}
+                                        ></div>
+                                    </div>
+                                    <p className="text-xs text-right mt-2 text-slate-500 font-medium">
+                                        {Math.round(progressPercentage)}% Complete
+                                    </p>
                                 </div>
-                                <p className="text-xs text-right mt-1 text-slate-500">
-                                    {Math.round(progressPercentage)}% Complete
-                                </p>
                             </div>
 
                             {/* The InteractionPanel without its header and navigation buttons */}
-                            <div className="flex-1 p-6 pl-8 pr-8 pb-0">
+                            <div className="flex-1 px-10 pb-0">
                                 <div className="bg-white h-full rounded-2xl overflow-hidden">
                                     <InteractionPanel showHeader={false} showNavigation={false} />
                                 </div>
                             </div>
 
                             {/* Navigation buttons moved to blue padding */}
-                            <div className="px-8 pt-4 pb-6 flex justify-between">
+                            <div className="px-10 pt-4 pb-8 flex justify-between">
                                 <Button
                                     variant="ghost"
                                     onClick={goToPreviousStep}
@@ -182,7 +184,7 @@ function OnboardingContent() {
                                 {shouldShowNextButton() && currentStep !== 'completion' && (
                                     <Button
                                         onClick={goToNextStep}
-                                        className="bg-blue-600 hover:bg-blue-700 text-white gap-1"
+                                        className="bg-blue-600 hover:bg-blue-700 text-white gap-1 px-6"
                                     >
                                         Next <FaArrowRight className="ml-1 h-3.5 w-3.5" />
                                     </Button>
@@ -191,7 +193,7 @@ function OnboardingContent() {
                                 {currentStep === 'completion' && (
                                     <Button
                                         onClick={saveOnboardingData}
-                                        className="bg-blue-600 hover:bg-blue-700 text-white gap-1"
+                                        className="bg-blue-600 hover:bg-blue-700 text-white gap-1 px-6"
                                     >
                                         Complete <FaCheck className="ml-1 h-3.5 w-3.5" />
                                     </Button>
