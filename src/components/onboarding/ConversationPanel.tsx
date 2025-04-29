@@ -38,7 +38,10 @@ export default function ConversationPanel() {
         addSkill,
         removeSkill,
         goToNextStep,
-        cleanupDuplicateMessages
+        cleanupDuplicateMessages,
+        setCurrentStep,
+        setProgressPercentage,
+        setMessages
     } = useOnboarding();
 
     // Get the step order and progress map from useOnboarding - we'll define these here since they're not exported
@@ -94,51 +97,13 @@ export default function ConversationPanel() {
         recommended_industries: string[];
         other_industries: string[];
     } | null>(null);
+    const [isTransitioning, setIsTransitioning] = useState(false);
+    const [processingComplete, setProcessingComplete] = useState(false);
 
     // Scroll to bottom whenever messages change
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
-
-    // Handle dynamic progress percentage
-    useEffect(() => {
-        // Start or reset progress tracking when status changes
-        if (agentStatus === 'processing_resume' || agentStatus === 'analyzing_data') {
-            // Clear any existing interval
-            if (progressIntervalRef.current) {
-                window.clearInterval(progressIntervalRef.current);
-            }
-
-            // Start with appropriate initial value
-            const initialProgress = agentStatus === 'processing_resume' ? 10 : 40;
-            setProcessProgress(initialProgress);
-
-            // Set up interval to increment progress
-            const maxProgress = agentStatus === 'processing_resume' ? 40 : 90;
-            const interval = window.setInterval(() => {
-                setProcessProgress(prev => {
-                    // Increment but don't exceed max
-                    const next = Math.min(prev + Math.floor(Math.random() * 3) + 1, maxProgress);
-                    return next;
-                });
-            }, 1000 + Math.random() * 2000); // Random interval between 1-3 seconds
-
-            progressIntervalRef.current = interval;
-        } else {
-            // Clear interval when status changes to something else
-            if (progressIntervalRef.current) {
-                window.clearInterval(progressIntervalRef.current);
-                progressIntervalRef.current = null;
-            }
-        }
-
-        // Cleanup on unmount
-        return () => {
-            if (progressIntervalRef.current) {
-                window.clearInterval(progressIntervalRef.current);
-            }
-        };
-    }, [agentStatus]);
 
     // Handle status changes for processing/analyzing
     useEffect(() => {
@@ -357,6 +322,44 @@ export default function ConversationPanel() {
         return () => clearInterval(timer);
     }, [messages, cleanupDuplicateMessages]);
 
+    // Update useEffect to better filter duplicate resume-processing messages
+    useEffect(() => {
+        // When the step changes, clean up duplicate and conflicting messages
+        cleanupDuplicateMessages();
+
+        // If we're in the resume processing step, do a more aggressive cleanup
+        // to remove redundant processing messages
+        if (currentStep === 'resume_upload' || currentStep === 'resume_analysis') {
+            // Additional cleanup for specific resume processing messages
+            setMessages(prev => {
+                // Find all processing-related messages
+                const processingMessages = prev.filter(msg =>
+                    msg.sender === 'agent' &&
+                    (msg.content.includes("processing your resume") ||
+                        msg.content.includes("analyzing your resume") ||
+                        msg.content.includes("may take a moment") ||
+                        msg.content.includes("Processing your resume"))
+                );
+
+                // If there are multiple, keep only the most recent one
+                if (processingMessages.length > 1) {
+                    const messagesToRemove = processingMessages.slice(0, -1).map(msg => msg.id);
+                    console.log(`Removing ${messagesToRemove.length} redundant processing messages`);
+                    return prev.filter(msg => !messagesToRemove.includes(msg.id));
+                }
+
+                return prev;
+            });
+        }
+
+        // Short delay and clean again to catch any new messages added during transition
+        const timer = setTimeout(() => {
+            cleanupDuplicateMessages();
+        }, 1000);
+
+        return () => clearTimeout(timer);
+    }, [currentStep, cleanupDuplicateMessages]);
+
     // Create a helper function for resume processing
     const processResumeWithBackend = async (file: File) => {
         if (!user) {
@@ -364,27 +367,35 @@ export default function ConversationPanel() {
             return { success: false, error: "No authenticated user" };
         }
 
+        // Don't reprocess if already complete
+        if (processingComplete) {
+            console.log("Resume already processed, skipping processing");
+            return { success: true, data: suggestions, parsedText: onboardingData.resume.parsedText };
+        }
+
         try {
-            // Update the profile with resume information first to make sure it's available for the suggestions API
+            // Update progress to show start of processing
+            setProcessProgress(10);
+
+            // Get public URL for the file (for reference only)
             const { data: urlData } = supabase.storage
                 .from('user-uploads')
                 .getPublicUrl(`resumes/${user.id}/${Date.now()}-${file.name}`);
 
             console.log("DEBUG: Resume URL:", urlData.publicUrl);
 
-            // Show parsing message
-            addMessage({
-                sender: 'agent',
-                content: "I'm parsing your resume to extract text...",
-                type: 'text'
-            });
+            // Update progress to 20%
+            setProcessProgress(20);
 
-            // MISSING STEP: Parse the PDF to text using the parse endpoint
             // Create a FormData object to send the file to the parse endpoint
             const formData = new FormData();
             formData.append('file', file);
 
             console.log("DEBUG: Calling parse API...");
+
+            // Update progress before parse API call
+            setProcessProgress(30);
+
             const parseResponse = await fetch('http://localhost:8000/parse', {
                 method: 'POST',
                 body: formData,
@@ -393,6 +404,9 @@ export default function ConversationPanel() {
             if (!parseResponse.ok) {
                 throw new Error(`Resume parsing API failed with status: ${parseResponse.status}`);
             }
+
+            // Update progress after parsing
+            setProcessProgress(50);
 
             // Get the parsed text
             const parseData = await parseResponse.json();
@@ -407,15 +421,10 @@ export default function ConversationPanel() {
                 })
                 .eq('user_id', user.id);
 
-            // Now show getting suggestions message
-            addMessage({
-                sender: 'agent',
-                content: "I'm analyzing your resume to provide personalized suggestions for your profile...",
-                type: 'text'
-            });
+            // Update progress
+            setProcessProgress(70);
 
-            // Make the API call to get suggestions - this will process the resume
-            // This endpoint already exists in api.py
+            // Make the API call to get suggestions
             console.log("DEBUG: Calling suggestions API...");
             const response = await fetch('http://localhost:8000/suggestions', {
                 method: 'POST',
@@ -431,6 +440,9 @@ export default function ConversationPanel() {
                 throw new Error(`Resume processing API failed with status: ${response.status}`);
             }
 
+            // Update progress
+            setProcessProgress(90);
+
             // Get the response data
             const data = await response.json();
             console.log('Resume processed successfully by backend:', data);
@@ -438,60 +450,60 @@ export default function ConversationPanel() {
             // Store the complete suggestions data for use throughout the onboarding flow
             setSuggestions(data);
 
-            // Store the information internally without showing messages yet
-            // These will be displayed at the appropriate steps in the conversation
+            // Process is almost complete at this point
+            setProcessProgress(95);
+
+            // Silently store the data without showing messages
             if (data.suggested_job_titles && data.suggested_job_titles.length > 0) {
-                // Silently populate job titles without recording in chat
-                updateJobPreference({
-                    job_titles: data.suggested_job_titles
-                }, false);
+                updateJobPreference({ job_titles: data.suggested_job_titles }, false);
             }
 
-            // Silently store skills without showing in chat, they'll be revealed during the skills step
             if (data.skills && data.skills.length > 0) {
-                // Clear existing skills silently
+                // Clear existing skills
                 onboardingData.userSkills.forEach(skill => {
-                    removeSkill(skill.skill_name, false); // Add a boolean param to prevent adding chat message
+                    removeSkill(skill.skill_name, false);
                 });
 
-                // Silently store skills from API without recording chat messages
+                // Store skills from API
                 data.skills.forEach(skill => {
-                    // Silently add skills
                     addSkill({
                         skill_name: skill,
                         is_highlighted: false,
                         source: 'resume'
-                    }, false); // Add a boolean param to prevent showing in chat
+                    }, false);
                 });
             }
 
-            // Set experience level if suggested (silently)
+            // Set experience level if suggested
             if (data.recommended_experience_level) {
                 updateJobPreference({
                     experience_level: data.recommended_experience_level
                 }, false);
             }
 
-            // Set salary range if suggested (silently)
+            // Set salary range if suggested
             if (data.recommended_salary_range) {
                 updateJobPreference({
                     salary_range: data.recommended_salary_range
                 }, false);
             }
 
-            // Add recommended locations (silently)
+            // Add recommended locations
             if (data.recommended_locations && data.recommended_locations.length > 0) {
                 updateJobPreference({
                     preferred_locations: data.recommended_locations
                 }, false);
             }
 
-            // Add recommended industries (silently)
+            // Add recommended industries
             if (data.recommended_industries && data.recommended_industries.length > 0) {
                 updateJobPreference({
                     preferred_industries: data.recommended_industries
                 }, false);
             }
+
+            // Processing is complete!
+            setProcessProgress(100);
 
             return { success: true, data, parsedText };
         } catch (error) {
@@ -503,94 +515,20 @@ export default function ConversationPanel() {
         }
     };
 
-    // Helper function to build a message showing all the suggestions
-    const buildSuggestionsMessage = (data: {
-        suggested_job_titles?: string[];
-        recommended_experience_level?: string;
-        recommended_salary_range?: string;
-        skills?: string[];
-        recommended_locations?: string[];
-        other_locations?: string[];
-        recommended_industries?: string[];
-        other_industries?: string[];
-    }) => {
-        const sections = [];
-
-        // Job Titles
-        if (data.suggested_job_titles && data.suggested_job_titles.length > 0) {
-            sections.push(`**Suggested Job Titles**: ${data.suggested_job_titles.join(', ')}`);
-        }
-
-        // Experience Level
-        if (data.recommended_experience_level) {
-            const levelMap: Record<string, string> = {
-                'entry_level': 'Entry Level (0-2 years)',
-                'mid_level': 'Mid Level (3-5 years)',
-                'senior': 'Senior (5-8 years)',
-                'lead': 'Lead / Principal (8+ years)',
-                'executive': 'Executive / Director'
-            };
-            const levelLabel = levelMap[data.recommended_experience_level] || data.recommended_experience_level;
-            sections.push(`**Recommended Experience Level**: ${levelLabel}`);
-        }
-
-        // Salary Range
-        if (data.recommended_salary_range) {
-            const rangeMap: Record<string, string> = {
-                'under_50k': 'Under $50K/year',
-                '50k_75k': '$50K - $75K/year',
-                '75k_100k': '$75K - $100K/year',
-                '100k_150k': '$100K - $150K/year',
-                '150k_200k': '$150K - $200K/year',
-                'over_200k': 'Over $200K/year'
-            };
-            const rangeLabel = rangeMap[data.recommended_salary_range] || data.recommended_salary_range;
-            sections.push(`**Recommended Salary Range**: ${rangeLabel}`);
-        }
-
-        // Skills
-        if (data.skills && data.skills.length > 0) {
-            sections.push(`**Identified Skills**: ${data.skills.join(', ')}`);
-        }
-
-        // Locations
-        if (data.recommended_locations && data.recommended_locations.length > 0) {
-            sections.push(`**Recommended Locations**: ${data.recommended_locations.join(', ')}`);
-        }
-
-        // Industries
-        if (data.recommended_industries && data.recommended_industries.length > 0) {
-            sections.push(`**Recommended Industries**: ${data.recommended_industries.join(', ')}`);
-        }
-
-        // Build the complete message
-        if (sections.length > 0) {
-            return `Based on your resume, I've identified the following information:\n\n${sections.join('\n\n')}\n\nI've pre-populated your profile with these suggestions. You can modify them as needed as we go through the onboarding process.`;
-        } else {
-            return "I've analyzed your resume but couldn't extract specific suggestions. We'll set up your profile step by step.";
-        }
-    };
-
-    // Update the file upload handler to call the backend
+    // Update the file upload handler to properly handle processing state
     const handleFileUpload = async (file: File) => {
         if (!file) {
             console.error("No file selected");
-            addMessage({
-                sender: 'system',
-                content: 'No file was selected. Please try again by clicking the upload button.',
-                type: 'text'
-            });
             return;
         }
 
         console.log('File selected:', file.name, 'Type:', file.type, 'Size:', file.size);
 
-        // Show feedback that upload is starting
-        addMessage({
-            sender: 'system',
-            content: `Starting upload of: ${file.name}`,
-            type: 'text'
-        });
+        // Set processing as not complete at the start
+        setProcessingComplete(false);
+
+        // Immediately set status to processing_resume
+        setAgentStatus('processing_resume');
 
         // Validate file type
         const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
@@ -600,29 +538,26 @@ export default function ConversationPanel() {
                 description: "Please upload a PDF or Word document (.doc, .docx)",
                 variant: "destructive",
             });
+            setAgentStatus('waiting_for_input');
             return;
         }
 
         try {
-            // Start the process
-            setAgentStatus('processing_resume');
+            // Clear previous messages
+            cleanupDuplicateMessages();
 
-            // Show a loading message
-            addMessage({
-                sender: 'system',
-                content: 'Processing your resume, please wait...',
-                type: 'text'
-            });
-
-            // Use the uploadResume function from context to upload to storage
-            await uploadResume(file);
-
-            // Add message about starting analysis
+            // Show a single status message
             addMessage({
                 sender: 'agent',
-                content: 'Thank you! I\'m analyzing your resume now...',
+                content: 'Processing your resume and analyzing your skills...',
                 type: 'text'
             });
+
+            // Upload file to storage
+            await uploadResume(file);
+
+            // Make sure we're still in processing state
+            setAgentStatus('processing_resume');
 
             // Process the resume with the backend
             const result = await processResumeWithBackend(file);
@@ -633,36 +568,34 @@ export default function ConversationPanel() {
                     await uploadResume(file, onboardingData.resume.url, result.parsedText);
                 }
 
-                // Update the agent status and add a success message
+                // Update the agent status to waiting_for_input to ensure UI is responsive
                 setAgentStatus('waiting_for_input');
+
+                // Mark processing as complete AFTER all the processing is done
+                setProcessingComplete(true);
 
                 // Add a success message
                 addMessage({
                     sender: 'agent',
-                    content: 'Great! Your resume has been successfully processed. Let\'s continue with setting up your profile.',
+                    content: 'Your resume has been processed successfully! Click "Continue" to set up your profile.',
                     type: 'text'
                 });
-
-                // Force step transition 
-                if (currentStep === 'welcome' || currentStep === 'resume_upload') {
-                    setTimeout(() => goToNextStep(), 1000);
-                }
             } else {
                 // Handle processing error
                 console.error("Resume processing failed:", result.error);
+
+                // Always set agent status back to waiting_for_input
                 setAgentStatus('waiting_for_input');
 
-                // Show error message but continue
+                // Mark processing as not complete
+                setProcessingComplete(false);
+
+                // Show error message
                 addMessage({
                     sender: 'agent',
-                    content: "I encountered an issue while processing your resume, but we can continue with your profile setup.",
+                    content: "I encountered an issue while processing your resume: " + (result.error || "Unknown error"),
                     type: 'text'
                 });
-
-                // Move to next step anyway
-                if (currentStep === 'welcome' || currentStep === 'resume_upload') {
-                    setTimeout(() => goToNextStep(), 1000);
-                }
             }
         } catch (error) {
             console.error("Resume upload failed:", error);
@@ -671,12 +604,17 @@ export default function ConversationPanel() {
                 description: "There was an error uploading your resume. Please try again.",
                 variant: "destructive",
             });
+
+            // Always restore agent status to enable interaction
             setAgentStatus('waiting_for_input');
+
+            // Mark processing as not complete
+            setProcessingComplete(false);
 
             // Show a recovery message
             addMessage({
                 sender: 'agent',
-                content: "I'm sorry, there was a problem uploading your resume. Please try again by clicking the upload button below.",
+                content: "I'm sorry, there was a problem uploading your resume. Please try again.",
                 type: 'text'
             });
         }
@@ -742,37 +680,40 @@ export default function ConversationPanel() {
         }
     };
 
-    // Display a processing indicator in the message area
+    // Update the renderProcessingIndicator function to show a simpler progress bar
     const renderProcessingIndicator = () => {
         if (agentStatus !== 'processing_resume' && agentStatus !== 'analyzing_data') {
             return null;
         }
 
+        // Get the status description based on progress
+        const getStatusDescription = () => {
+            if (processProgress < 20) return "Starting resume processing...";
+            if (processProgress < 40) return "Extracting text from your resume...";
+            if (processProgress < 60) return "Analyzing your resume content...";
+            if (processProgress < 80) return "Identifying skills and experience...";
+            if (processProgress < 95) return "Generating personalized profile suggestions...";
+            return "Finalizing your profile recommendations...";
+        };
+
         return (
             <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="flex items-start"
+                className="w-full p-4 bg-blue-50 border border-blue-100 rounded-lg my-4"
             >
-                <Avatar className="h-8 w-8 mt-0.5 mr-3 flex-shrink-0">
-                    <AvatarFallback className="bg-primary/10 text-primary">AI</AvatarFallback>
-                    <AvatarImage src="/agent-avatar.png" />
-                </Avatar>
-                <div className="bg-slate-100 dark:bg-slate-800 px-4 py-3 rounded-2xl">
-                    <div className="flex items-center gap-2">
-                        <FaSpinner className="h-4 w-4 animate-spin text-primary" />
-                        <span>
-                            {agentStatus === 'processing_resume'
-                                ? `Processing your resume (${processProgress}%)...`
-                                : `Analyzing your data (${processProgress}%)...`}
-                        </span>
-                    </div>
-                    <div className="mt-2 h-1.5 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                        <div
-                            className="h-full bg-primary rounded-full transition-all duration-300 ease-out"
-                            style={{ width: `${processProgress}%` }}
-                        ></div>
-                    </div>
+                <div className="flex items-center justify-between mb-2">
+                    <div className="font-medium text-blue-700">Processing your resume</div>
+                    <div className="text-sm text-blue-600">{processProgress}%</div>
+                </div>
+                <div className="h-2 w-full bg-blue-100 rounded-full overflow-hidden">
+                    <div
+                        className="h-full bg-blue-600 rounded-full transition-all duration-300 ease-out"
+                        style={{ width: `${processProgress}%` }}
+                    ></div>
+                </div>
+                <div className="mt-2 text-sm text-blue-600">
+                    {getStatusDescription()}
                 </div>
             </motion.div>
         );
@@ -802,44 +743,83 @@ export default function ConversationPanel() {
         return rangeMap[range] || range;
     };
 
-    // Render interactive elements based on the current step
+    // Add a custom function to handle the continue button click
+    const handleContinueAfterProcessing = () => {
+        // Find the job_titles step index (skip resume_analysis)
+        const jobTitlesIndex = stepOrder.indexOf('job_titles');
+
+        if (jobTitlesIndex !== -1) {
+            // Set the step directly to job_titles
+            setCurrentStep('job_titles');
+            // Update progress percentage
+            setProgressPercentage(stepProgressMap['job_titles']);
+
+            // Add a message about moving to the next phase
+            addMessage({
+                sender: 'agent',
+                content: 'Based on your resume, here are some suggested job titles. You can select from these or add your own using the input field below.',
+                type: 'text'
+            });
+
+            // Ensure agent status is ready for input
+            setAgentStatus('waiting_for_input');
+        } else {
+            // Fallback to normal next step if for some reason job_titles isn't found
+            goToNextStep();
+        }
+    };
+
+    // Modify the renderInteractiveElements function to use the custom continue handler
     const renderInteractiveElements = () => {
-        // For welcome step or resume_upload step, check if a resume is already uploaded
+        // For welcome step or resume_upload step, show the resume uploader UI
         if (currentStep === 'welcome' || currentStep === 'resume_upload') {
             // Check if user already has a resume uploaded
             const hasResume = onboardingData.resume && onboardingData.resume.url && onboardingData.resume.url.length > 0;
+            const isProcessing = agentStatus === 'processing_resume' || agentStatus === 'analyzing_data';
 
-            if (hasResume) {
-                // If resume is already uploaded, show a success message and continue button instead
-                return (
-                    <div className="flex flex-col items-center w-full">
-                        <div className="bg-green-50 p-4 mb-4 rounded-lg text-green-700 w-full">
-                            <div className="flex items-center justify-center mb-2">
-                                <FaCheckCircle className="h-5 w-5 mr-2 text-green-600" />
-                                <p className="font-medium">Resume successfully uploaded</p>
-                            </div>
-                            <p className="text-sm text-green-600 text-center">
-                                {onboardingData.resume.fileName || "Your resume"} has been processed
-                            </p>
-                        </div>
-                        <Button
-                            onClick={goToNextStep}
-                            className="bg-blue-600 hover:bg-blue-700 text-white"
-                        >
-                            Continue
-                        </Button>
-                    </div>
-                );
-            }
-
-            // If no resume yet, show the uploader as normal
             return (
                 <div className="flex flex-col items-center w-full">
-                    <div className="bg-blue-50 p-4 mb-4 rounded-lg text-blue-700 w-full text-center">
-                        <p className="font-medium">Please upload your resume to get started</p>
-                        <p className="text-sm text-blue-600">We'll use it to personalize your profile</p>
-                    </div>
-                    <ResumeUploader onFileSelect={handleFileUpload} />
+                    {/* Show upload message ONLY if not processing, not complete, and no resume */}
+                    {!isProcessing && !processingComplete && !hasResume && (
+                        <div className="bg-blue-50 p-4 mb-4 rounded-lg text-blue-700 w-full text-center">
+                            <p className="font-medium">Please upload your resume to get started</p>
+                            <p className="text-sm text-blue-600">We'll use it to personalize your profile</p>
+                        </div>
+                    )}
+
+                    {/* Now handle three separate states:
+                        1. No resume yet - show uploader
+                        2. Resume uploaded but processing - show progress bar only
+                        3. Resume processed completely - show success message and continue button */}
+                    {!hasResume ? (
+                        /* No resume yet - show uploader */
+                        <ResumeUploader onFileSelect={handleFileUpload} />
+                    ) : isProcessing ? (
+                        /* Processing - show progress bar ONLY */
+                        renderProcessingIndicator()
+                    ) : processingComplete ? (
+                        /* Processing complete - show success and continue button */
+                        <div className="mt-4 w-full flex flex-col items-center">
+                            <div className="bg-green-50 p-4 mb-4 rounded-lg text-green-700 w-full">
+                                <div className="flex items-center justify-center mb-2">
+                                    <FaCheckCircle className="h-5 w-5 mr-2 text-green-600" />
+                                    <p className="font-medium">Resume successfully processed</p>
+                                </div>
+                                <p className="text-sm text-green-600 text-center">
+                                    {onboardingData.resume.fileName || "Your resume"} is ready
+                                </p>
+                            </div>
+                            <Button
+                                onClick={handleContinueAfterProcessing}
+                                className="bg-blue-600 hover:bg-blue-700 text-white mt-4 w-40"
+                            >
+                                Continue
+                            </Button>
+                        </div>
+                    ) : (
+                        /* Resume uploaded but not yet processed or failed processing - show uploader again */
+                        <ResumeUploader onFileSelect={handleFileUpload} />
+                    )}
                 </div>
             );
         }
@@ -880,6 +860,7 @@ export default function ConversationPanel() {
             );
         }
 
+        // Continue with the rest of the existing renderInteractiveElements function...
         // For salary expectations step
         if (currentStep === 'salary_expectations') {
             const recommendedSalaryRange = suggestions?.recommended_salary_range;
@@ -970,7 +951,7 @@ export default function ConversationPanel() {
             );
         }
 
-        // For all other steps, use switch case
+        // For all other steps, use the existing switch case
         switch (currentStep) {
             case 'job_search_status':
                 return (
@@ -1171,61 +1152,36 @@ export default function ConversationPanel() {
         }
     };
 
-    // Update the useEffect for fetching suggestions to trigger when step changes
+    // Update the useEffect for fetching suggestions to remove auto-fetching
     useEffect(() => {
-        // If we're on the resume_analysis or job_titles step, fetch suggestions if they don't exist
-        if ((currentStep === 'resume_analysis' || currentStep === 'job_titles')
-            && !suggestions && !isFetchingSuggestions
-            && onboardingData.resume.parsedText) {
+        // Clean up duplicates whenever messages change
+        cleanupDuplicateMessages();
 
-            console.log('Fetching suggestions after resume processing');
-            fetchSuggestions();
-        }
-    }, [currentStep, suggestions, isFetchingSuggestions, onboardingData.resume.parsedText]);
+        // Set a timer to clean up duplicates periodically
+        const timer = setInterval(() => {
+            cleanupDuplicateMessages();
+        }, 5000); // Clean every 5 seconds
 
-    // Add effect to auto-advance to next step when a minimum number of items are added
+        return () => clearInterval(timer);
+    }, [messages, cleanupDuplicateMessages]);
+
+    // Add another effect to clean up messages when steps change
     useEffect(() => {
-        // Check if we have adequate data to auto-advance for certain steps
-        if (agentStatus === 'waiting_for_input') {
-            // For job titles step, if we have at least one title, show the continue button
-            if (currentStep === 'job_titles' && onboardingData.jobPreference.job_titles.length > 0 &&
-                !document.querySelector('[data-auto-advance-shown="true"]')) {
+        // When the step changes, clean up duplicate and conflicting messages
+        cleanupDuplicateMessages();
 
-                // Add a message suggesting the user can continue when ready
-                addMessage({
-                    sender: 'agent',
-                    content: "Great! You've added a job title. Click 'Continue' when you're ready to move to the next step.",
-                    type: 'text'
-                });
+        // Short delay and clean again to catch any new messages added during transition
+        const timer = setTimeout(() => {
+            cleanupDuplicateMessages();
+        }, 1000);
 
-                // Mark that we've shown this message
-                const messageDivs = document.querySelectorAll('[data-auto-advance-shown]');
-                messageDivs.forEach(div => {
-                    div.setAttribute('data-auto-advance-shown', 'true');
-                });
-            }
+        return () => clearTimeout(timer);
+    }, [currentStep, cleanupDuplicateMessages]);
 
-            // Similar logic for skills, locations, and industries
-            if (currentStep === 'skills_verification' && onboardingData.userSkills.length > 0 &&
-                !document.querySelector('[data-auto-advance-shown="true"]')) {
-
-                addMessage({
-                    sender: 'agent',
-                    content: "Great! You've added skills to your profile. Click 'Continue' when you're ready to move to the next step.",
-                    type: 'text'
-                });
-
-                const messageDivs = document.querySelectorAll('[data-auto-advance-shown]');
-                messageDivs.forEach(div => {
-                    div.setAttribute('data-auto-advance-shown', 'true');
-                });
-            }
-        }
-    }, [currentStep, onboardingData, agentStatus, addMessage]);
-
-    // Replace the useEffect for the welcome message to ensure clear guidance is shown
+    // Remove the auto-detection effect that causes multiple step advances
+    // and replace with a simpler effect just for the welcome message
     useEffect(() => {
-        // Only add if no agent messages exist yet and we're at the first step
+        // Only add welcome message if no agent messages exist yet and we're at the first step
         const hasInstructions = messages.some(m =>
             m.sender === 'agent' &&
             (m.content.includes("upload") || m.content.includes("resume"))
@@ -1237,7 +1193,7 @@ export default function ConversationPanel() {
                 // Add a welcome message with clear instructions
                 addMessage({
                     sender: 'agent',
-                    content: "Welcome to EZ Career! I'll help you set up your profile step by step. Let's start by uploading your resume. Please use the upload button below.",
+                    content: "Welcome to EZ Career! I'll help you set up your profile step by step. Let's start by uploading your resume.",
                     type: 'text'
                 });
                 setAgentStatus('waiting_for_input');
@@ -1245,147 +1201,15 @@ export default function ConversationPanel() {
 
             return () => clearTimeout(welcomeTimeout);
         }
-    }, [currentStep, addMessage, setAgentStatus]);
+    }, [currentStep, messages, addMessage, setAgentStatus]);
 
-    // Add a force reset function and button for when the UI gets stuck
-    const forceResetConversation = () => {
-        // Add a system message about resetting
-        addMessage({
-            sender: 'system',
-            content: 'Resetting conversation...',
-            type: 'text'
-        });
-
-        // Clear any processing state
+    // Add a function to handle any cleanup needed
+    const resetUIState = () => {
         setAgentStatus('waiting_for_input');
-
-        // Add a new agent message with clear instructions based on current step
-        let instructionMessage = '';
-
-        if (currentStep === 'welcome' || currentStep === 'resume_upload') {
-            instructionMessage = "Let's start by uploading your resume. Please use the upload button below.";
-        } else if (currentStep === 'job_titles') {
-            instructionMessage = "Please add job titles you're interested in using the input field below.";
-        } else {
-            instructionMessage = "Please follow the instructions below to continue with your profile setup.";
-        }
-
-        addMessage({
-            sender: 'agent',
-            content: instructionMessage,
-            type: 'text'
-        });
+        cleanupDuplicateMessages();
     };
 
-    // Add effect to check if we need to skip the resume upload step
-    useEffect(() => {
-        // If we're on the welcome or resume_upload step but already have a resume
-        const hasResume = onboardingData.resume && onboardingData.resume.url && onboardingData.resume.url.length > 0;
-
-        if ((currentStep === 'welcome' || currentStep === 'resume_upload') && hasResume) {
-            // Check if we already have an "already uploaded" message
-            const messageExists = messages.some(m =>
-                m.content.includes("already uploaded") ||
-                m.content.includes("resume has been processed")
-            );
-
-            if (!messageExists) {
-                // Remove any pending "upload your resume" messages
-                messages.filter(m =>
-                    m.sender === 'agent' &&
-                    m.content.includes("upload your resume")
-                ).forEach(m => {
-                    // In a real implementation we would remove these messages
-                    console.log(`Would remove message: ${m.id}`);
-                });
-
-                // Add a clear message about the resume being already uploaded
-                addMessage({
-                    sender: 'agent',
-                    content: 'I see you\'ve already uploaded your resume. You can either continue with your current resume or upload a new one.',
-                    type: 'text'
-                });
-            }
-        }
-    }, [currentStep, onboardingData.resume, messages, addMessage]);
-
-    // Add effect to auto-detect when resume is already processed and move forward
-    useEffect(() => {
-        // If we're on the resume_upload or resume_analysis step but already have processed data
-        const hasResume = onboardingData.resume && onboardingData.resume.url && onboardingData.resume.url.length > 0;
-        const hasProcessedData = onboardingData.jobPreference.job_titles.length > 0 || onboardingData.userSkills.length > 0;
-
-        // Check if we're in a processing state that's been running too long
-        const isStuckInProcessing = agentStatus === 'processing_resume' && processProgress >= 40;
-
-        if ((currentStep === 'resume_upload' || currentStep === 'resume_analysis') &&
-            (hasResume && hasProcessedData)) {
-            // Clear any processing state and force advance to job_titles step
-            console.log("Detected resume already processed. Forcing advance to next step.");
-
-            // Clear processing state
-            setAgentStatus('waiting_for_input');
-
-            // Add a message about detected resume data
-            const messageExists = messages.some(m => m.content.includes("I've detected") || m.content.includes("already analyzed"));
-
-            if (!messageExists) {
-                addMessage({
-                    sender: 'agent',
-                    content: "I've detected that your resume has already been analyzed. Let's continue with setting up your profile.",
-                    type: 'text'
-                });
-
-                // Force move to job_titles step after a short delay
-                setTimeout(() => {
-                    if (currentStep === 'resume_upload' || currentStep === 'resume_analysis') {
-                        // Find the index right after resume_analysis
-                        const resumeAnalysisIndex = stepOrder.indexOf('resume_analysis');
-                        if (resumeAnalysisIndex >= 0 && resumeAnalysisIndex + 1 < stepOrder.length) {
-                            // Just call goToNextStep instead of directly manipulating state
-                            goToNextStep();
-                        }
-                    }
-                }, 1000);
-            }
-        } else if (isStuckInProcessing) {
-            // Handle case where processing is stuck
-            console.log("Resume processing appears stuck. Moving forward anyway.");
-            setAgentStatus('waiting_for_input');
-
-            // Add a message about processing completion
-            addMessage({
-                sender: 'agent',
-                content: "I've finished analyzing your resume. Let's continue with setting up your profile.",
-                type: 'text'
-            });
-
-            // Force move forward
-            if (currentStep === 'resume_upload' || currentStep === 'resume_analysis') {
-                setTimeout(() => goToNextStep(), 1000);
-            }
-        }
-    }, [currentStep, agentStatus, processProgress, onboardingData.resume, onboardingData.jobPreference.job_titles, onboardingData.userSkills.length, goToNextStep, addMessage, setAgentStatus]);
-
-    // Add a function to force reset progress and move forward when stuck
-    const forceAdvanceProgress = () => {
-        console.log("Forcing advance from current step:", currentStep);
-
-        // Clear processing state
-        setAgentStatus('waiting_for_input');
-
-        // Add a message about forced advance
-        addMessage({
-            sender: 'system',
-            content: 'Resuming onboarding flow...',
-            type: 'text'
-        });
-
-        // Just use goToNextStep instead of manually setting step
-        goToNextStep();
-    };
-
-    // Add attributes to message elements to track auto-advance messages
+    // Update the return function to remove extra buttons and controls
     return (
         <div className="flex flex-col h-full bg-background">
             {/* Messages area - enforce max height and scrolling */}
@@ -1399,7 +1223,6 @@ export default function ConversationPanel() {
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ duration: 0.2 }}
                                 className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'} ${message.sender === 'system' ? 'justify-center' : ''}`}
-                                data-auto-advance-shown={message.content.includes("Click 'Continue'") ? 'false' : undefined}
                             >
                                 <div className={`flex items-start max-w-[85%] ${message.sender === 'system' ? 'max-w-md' : ''}`}>
                                     {/* Avatar for agent only */}
@@ -1438,8 +1261,10 @@ export default function ConversationPanel() {
                         ))}
                     </AnimatePresence>
 
-                    {/* Show active processing indicator if needed */}
-                    {renderProcessingIndicator()}
+                    {/* Show active processing indicator in messages ONLY if it's not shown in the interactive elements */}
+                    {(agentStatus === 'processing_resume' || agentStatus === 'analyzing_data') &&
+                        currentStep !== 'welcome' && currentStep !== 'resume_upload' &&
+                        renderProcessingIndicator()}
 
                     {/* Agent is typing indicator */}
                     {agentStatus === 'thinking' && (
@@ -1466,31 +1291,6 @@ export default function ConversationPanel() {
                     <div className="mt-4 w-full">
                         {renderInteractiveElements()}
                     </div>
-
-                    {/* Add this near the end, right before the messagesEndRef */}
-                    {messages.length > 0 && !renderInteractiveElements() && (
-                        <div className="flex justify-center mt-4 mb-4 gap-2">
-                            <Button
-                                onClick={forceResetConversation}
-                                variant="outline"
-                                size="sm"
-                                className="text-xs text-muted-foreground"
-                            >
-                                Restart instructions
-                            </Button>
-
-                            {(currentStep === 'resume_upload' || currentStep === 'resume_analysis') && (
-                                <Button
-                                    onClick={forceAdvanceProgress}
-                                    variant="outline"
-                                    size="sm"
-                                    className="text-xs bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100"
-                                >
-                                    Continue to next step
-                                </Button>
-                            )}
-                        </div>
-                    )}
 
                     {/* Invisible element to scroll to */}
                     <div ref={messagesEndRef} />

@@ -83,6 +83,9 @@ interface OnboardingContextType {
     saveOnboardingData: () => Promise<boolean>;
     setCurrentInteraction: (interaction: ReactNode) => void;
     cleanupDuplicateMessages: () => void;
+    setCurrentStep: (step: OnboardingStep) => void;
+    setProgressPercentage: (percentage: number) => void;
+    setMessages: (setter: (prev: Message[]) => Message[]) => void;
 }
 
 // Create the context with a default value
@@ -137,17 +140,39 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         if (message.sender === 'agent') {
             // Get the last few messages
             setMessages(prev => {
-                const recentMessages = prev.slice(-5);
+                const recentMessages = prev.slice(-10); // Check more recent messages (increased from 5)
 
-                // Check if this exact message content already exists in recent messages
-                const isDuplicate = recentMessages.some(m =>
-                    m.sender === 'agent' &&
-                    m.content.trim() === message.content.trim()
-                );
+                // Enhanced duplicate detection - check for similar content, not just exact matches
+                const isDuplicate = recentMessages.some(m => {
+                    if (m.sender !== 'agent') return false;
+
+                    // Exact match check
+                    if (m.content.trim() === message.content.trim()) return true;
+
+                    // Semantic similarity check for common phrases
+                    const commonKeyPhrases = [
+                        "uploading your resume",
+                        "analyzing your resume",
+                        "processing your resume",
+                        "successfully processed",
+                        "continue with setting",
+                        "already uploaded"
+                    ];
+
+                    // If both messages contain the same key phrase, consider as potential duplicate
+                    for (const phrase of commonKeyPhrases) {
+                        if (m.content.includes(phrase) && message.content.includes(phrase)) {
+                            // If messages are about the same action, consider them duplicates
+                            return true;
+                        }
+                    }
+
+                    return false;
+                });
 
                 // If it's a duplicate, don't add it
                 if (isDuplicate) {
-                    console.log('Prevented adding duplicate message:', message.content);
+                    console.log('Prevented adding duplicate/similar message:', message.content);
                     return prev;
                 }
 
@@ -194,9 +219,30 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
                 toRemove.forEach(msg => idsToRemove.add(msg.id));
             });
 
+            // Also check for conflicting messages about resume upload/processing
+            // These key phrases should not appear together in the final messages
+            const conflictGroups = [
+                ["I'm processing your resume", "successfully processed", "detected that your resume has already been analyzed"],
+                ["Let's start by uploading your resume", "I've detected that your resume has already", "successfully processed"],
+                ["continue with setting up your profile", "Let's start by uploading", "upload your resume"]
+            ];
+
+            // For each conflict group, keep only the most recent message mentioning any phrase from that group
+            conflictGroups.forEach(phraseGroup => {
+                const conflictingMessages = prev
+                    .filter(msg => msg.sender === 'agent' && phraseGroup.some(phrase => msg.content.includes(phrase)))
+                    .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()); // Sort newest first
+
+                // Keep only the most recent message in the conflict group
+                if (conflictingMessages.length > 1) {
+                    const [keep, ...remove] = conflictingMessages;
+                    remove.forEach(msg => idsToRemove.add(msg.id));
+                }
+            });
+
             // If we found duplicates to remove
             if (idsToRemove.size > 0) {
-                console.log(`Removing ${idsToRemove.size} duplicate messages`);
+                console.log(`Removing ${idsToRemove.size} duplicate/conflicting messages`);
                 return prev.filter(msg => !idsToRemove.has(msg.id));
             }
 
@@ -711,7 +757,10 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         uploadResume,
         saveOnboardingData,
         setCurrentInteraction,
-        cleanupDuplicateMessages
+        cleanupDuplicateMessages,
+        setCurrentStep,
+        setProgressPercentage,
+        setMessages
     };
 
     return (
