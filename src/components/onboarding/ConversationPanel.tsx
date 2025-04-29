@@ -360,327 +360,41 @@ export default function ConversationPanel() {
         return () => clearTimeout(timer);
     }, [currentStep, cleanupDuplicateMessages]);
 
-    // Create a helper function for resume processing
-    const processResumeWithBackend = async (file: File) => {
-        if (!user) {
-            console.error("No user found");
-            return { success: false, error: "No authenticated user" };
-        }
+    // Replace the animateProgressTo function with a more performant version using requestAnimationFrame
+    const animateProgressTo = (targetValue: number, duration: number = 1000) => {
+        // Store the start time and progress value
+        const startValue = processProgress;
+        const startTime = performance.now();
+        const changeInValue = targetValue - startValue;
 
-        // Don't reprocess if already complete
-        if (processingComplete) {
-            console.log("Resume already processed, skipping processing");
-            return { success: true, data: suggestions, parsedText: onboardingData.resume.parsedText };
-        }
+        // Use requestAnimationFrame for smoother animation
+        const animate = (currentTime: number) => {
+            // Calculate how much time has passed as a percentage of total duration
+            const elapsedTime = currentTime - startTime;
+            const progress = Math.min(elapsedTime / duration, 1);
 
-        try {
-            // Update progress to show start of processing
-            setProcessProgress(10);
-
-            // Get public URL for the file (for reference only)
-            const { data: urlData } = supabase.storage
-                .from('user-uploads')
-                .getPublicUrl(`resumes/${user.id}/${Date.now()}-${file.name}`);
-
-            console.log("DEBUG: Resume URL:", urlData.publicUrl);
-
-            // Update progress to 20%
-            setProcessProgress(20);
-
-            // Create a FormData object to send the file to the parse endpoint
-            const formData = new FormData();
-            formData.append('file', file);
-
-            console.log("DEBUG: Calling parse API...");
-
-            // Update progress before parse API call
-            setProcessProgress(30);
-
-            const parseResponse = await fetch('http://localhost:8000/parse', {
-                method: 'POST',
-                body: formData,
-            });
-
-            if (!parseResponse.ok) {
-                throw new Error(`Resume parsing API failed with status: ${parseResponse.status}`);
-            }
-
-            // Update progress after parsing
-            setProcessProgress(50);
-
-            // Get the parsed text
-            const parseData = await parseResponse.json();
-            console.log('Resume parsed successfully by backend:', parseData);
-            const parsedText = parseData.markdown;
-
-            // Update the Supabase profile with the parsed text
-            await supabase
-                .from('profiles')
-                .update({
-                    resume_text: parsedText
-                })
-                .eq('user_id', user.id);
-
-            // Update progress
-            setProcessProgress(70);
-
-            // Make the API call to get suggestions
-            console.log("DEBUG: Calling suggestions API...");
-            const response = await fetch('http://localhost:8000/suggestions', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    user_id: user.id
-                }),
-            });
-
-            if (!response.ok) {
-                throw new Error(`Resume processing API failed with status: ${response.status}`);
-            }
-
-            // Update progress
-            setProcessProgress(90);
-
-            // Get the response data
-            const data = await response.json();
-            console.log('Resume processed successfully by backend:', data);
-
-            // Store the complete suggestions data for use throughout the onboarding flow
-            setSuggestions(data);
-
-            // Process is almost complete at this point
-            setProcessProgress(95);
-
-            // Silently store the data without showing messages
-            if (data.suggested_job_titles && data.suggested_job_titles.length > 0) {
-                updateJobPreference({ job_titles: data.suggested_job_titles }, false);
-            }
-
-            if (data.skills && data.skills.length > 0) {
-                // Clear existing skills
-                onboardingData.userSkills.forEach(skill => {
-                    removeSkill(skill.skill_name, false);
-                });
-
-                // Store skills from API
-                data.skills.forEach(skill => {
-                    addSkill({
-                        skill_name: skill,
-                        is_highlighted: false,
-                        source: 'resume'
-                    }, false);
-                });
-            }
-
-            // Set experience level if suggested
-            if (data.recommended_experience_level) {
-                updateJobPreference({
-                    experience_level: data.recommended_experience_level
-                }, false);
-            }
-
-            // Set salary range if suggested
-            if (data.recommended_salary_range) {
-                updateJobPreference({
-                    salary_range: data.recommended_salary_range
-                }, false);
-            }
-
-            // Add recommended locations
-            if (data.recommended_locations && data.recommended_locations.length > 0) {
-                updateJobPreference({
-                    preferred_locations: data.recommended_locations
-                }, false);
-            }
-
-            // Add recommended industries
-            if (data.recommended_industries && data.recommended_industries.length > 0) {
-                updateJobPreference({
-                    preferred_industries: data.recommended_industries
-                }, false);
-            }
-
-            // Processing is complete!
-            setProcessProgress(100);
-
-            return { success: true, data, parsedText };
-        } catch (error) {
-            console.error("Resume processing API error:", error);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : "Unknown error during resume processing"
+            // Use easeOutCubic easing function for a more natural animation
+            // t: current time, b: start value, c: change in value, d: duration
+            const easeOutCubic = (t: number) => {
+                t = t - 1;
+                return changeInValue * (t * t * t + 1) + startValue;
             };
-        }
-    };
 
-    // Update the file upload handler to properly handle processing state
-    const handleFileUpload = async (file: File) => {
-        if (!file) {
-            console.error("No file selected");
-            return;
-        }
+            // Set the new progress value
+            const newValue = easeOutCubic(progress);
+            setProcessProgress(newValue);
 
-        console.log('File selected:', file.name, 'Type:', file.type, 'Size:', file.size);
-
-        // Set processing as not complete at the start
-        setProcessingComplete(false);
-
-        // Immediately set status to processing_resume
-        setAgentStatus('processing_resume');
-
-        // Validate file type
-        const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-        if (!allowedTypes.includes(file.type)) {
-            toast({
-                title: "Invalid file type",
-                description: "Please upload a PDF or Word document (.doc, .docx)",
-                variant: "destructive",
-            });
-            setAgentStatus('waiting_for_input');
-            return;
-        }
-
-        try {
-            // Clear previous messages
-            cleanupDuplicateMessages();
-
-            // Show a single status message
-            addMessage({
-                sender: 'agent',
-                content: 'Processing your resume and analyzing your skills...',
-                type: 'text'
-            });
-
-            // Upload file to storage
-            await uploadResume(file);
-
-            // Make sure we're still in processing state
-            setAgentStatus('processing_resume');
-
-            // Process the resume with the backend
-            const result = await processResumeWithBackend(file);
-
-            if (result.success) {
-                // If we have parsed text, update the resume object with it
-                if (result.parsedText) {
-                    await uploadResume(file, onboardingData.resume.url, result.parsedText);
-                }
-
-                // Update the agent status to waiting_for_input to ensure UI is responsive
-                setAgentStatus('waiting_for_input');
-
-                // Mark processing as complete AFTER all the processing is done
-                setProcessingComplete(true);
-
-                // Add a success message
-                addMessage({
-                    sender: 'agent',
-                    content: 'Your resume has been processed successfully! Click "Continue" to set up your profile.',
-                    type: 'text'
-                });
-            } else {
-                // Handle processing error
-                console.error("Resume processing failed:", result.error);
-
-                // Always set agent status back to waiting_for_input
-                setAgentStatus('waiting_for_input');
-
-                // Mark processing as not complete
-                setProcessingComplete(false);
-
-                // Show error message
-                addMessage({
-                    sender: 'agent',
-                    content: "I encountered an issue while processing your resume: " + (result.error || "Unknown error"),
-                    type: 'text'
-                });
+            // Continue the animation if we're not done
+            if (progress < 1) {
+                requestAnimationFrame(animate);
             }
-        } catch (error) {
-            console.error("Resume upload failed:", error);
-            toast({
-                title: "Upload failed",
-                description: "There was an error uploading your resume. Please try again.",
-                variant: "destructive",
-            });
+        };
 
-            // Always restore agent status to enable interaction
-            setAgentStatus('waiting_for_input');
-
-            // Mark processing as not complete
-            setProcessingComplete(false);
-
-            // Show a recovery message
-            addMessage({
-                sender: 'agent',
-                content: "I'm sorry, there was a problem uploading your resume. Please try again.",
-                type: 'text'
-            });
-        }
+        // Start the animation
+        requestAnimationFrame(animate);
     };
 
-    // Handle experience level selection
-    const handleExperienceLevelSelect = (value: string) => {
-        updateJobPreference({ experience_level: value });
-
-        // Add a system message about automatic advancement
-        addMessage({
-            sender: 'system',
-            content: 'Selection saved. Moving to next step automatically...',
-            type: 'text'
-        });
-
-        // Use a slight delay so the user sees their selection and the message
-        setTimeout(() => goToNextStep(), 1200);
-    };
-
-    // Handle salary range selection
-    const handleSalaryRangeSelect = (value: string) => {
-        updateJobPreference({ salary_range: value });
-
-        // Add a system message about automatic advancement
-        addMessage({
-            sender: 'system',
-            content: 'Selection saved. Moving to next step automatically...',
-            type: 'text'
-        });
-
-        setTimeout(() => goToNextStep(), 1200);
-    };
-
-    // Handle job search status selection
-    const handleJobSearchStatusSelect = (value: string) => {
-        updateJobPreference({ job_search_status: value });
-
-        // Add a system message about automatic advancement
-        addMessage({
-            sender: 'system',
-            content: 'Selection saved. Moving to next step automatically...',
-            type: 'text'
-        });
-
-        setTimeout(() => goToNextStep(), 1200);
-    };
-
-    // Handle remote preference toggle
-    const handleRemotePreferenceToggle = (value: boolean) => {
-        updateJobPreference({ remote_preference: value });
-        // Don't auto-advance for toggle as user may want to change their mind
-    };
-
-    // Helper to toggle skill highlighting
-    const toggleSkillHighlight = (skillName: string) => {
-        const existingSkill = onboardingData.userSkills.find(s => s.skill_name === skillName);
-        if (existingSkill) {
-            addSkill({
-                ...existingSkill,
-                is_highlighted: !existingSkill.is_highlighted
-            });
-        }
-    };
-
-    // Update the renderProcessingIndicator function to show a simpler progress bar
+    // Update the renderProcessingIndicator function with more optimized animations
     const renderProcessingIndicator = () => {
         if (agentStatus !== 'processing_resume' && agentStatus !== 'analyzing_data') {
             return null;
@@ -696,24 +410,69 @@ export default function ConversationPanel() {
             return "Finalizing your profile recommendations...";
         };
 
+        // Get a color that gradually shifts from blue to green as progress increases
+        const getProgressBarColor = () => {
+            const hue = 200 + (processProgress * 0.6); // Gradually shift hue
+            return `hsl(${hue}, 80%, 50%)`;
+        };
+
         return (
             <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="w-full p-4 bg-blue-50 border border-blue-100 rounded-lg my-4"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
+                className="w-full p-5 bg-blue-50 border border-blue-100 rounded-lg my-5 shadow-sm"
             >
-                <div className="flex items-center justify-between mb-2">
-                    <div className="font-medium text-blue-700">Processing your resume</div>
-                    <div className="text-sm text-blue-600">{processProgress}%</div>
+                <div className="flex items-center justify-between mb-3">
+                    <div className="font-medium text-blue-700 flex items-center">
+                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Processing your resume
+                    </div>
+                    <div className="text-sm font-medium text-blue-600">{Math.round(processProgress)}%</div>
                 </div>
-                <div className="h-2 w-full bg-blue-100 rounded-full overflow-hidden">
-                    <div
-                        className="h-full bg-blue-600 rounded-full transition-all duration-300 ease-out"
-                        style={{ width: `${processProgress}%` }}
-                    ></div>
+                <div className="h-2.5 w-full bg-blue-100 rounded-full overflow-hidden relative backdrop-blur-0">
+                    <motion.div
+                        className="h-full rounded-full will-change-transform"
+                        style={{
+                            width: `${processProgress}%`,
+                            backgroundColor: getProgressBarColor(),
+                        }}
+                        transition={{ ease: "easeOut", duration: 0.2 }}
+                    />
+
+                    {/* Use a more subtle, performant animation for the light effect */}
+                    <motion.div
+                        className="absolute top-0 left-0 h-full w-full overflow-hidden"
+                        initial={false}
+                    >
+                        <motion.div
+                            className="absolute top-0 h-full w-10 bg-gradient-to-r from-transparent via-white to-transparent opacity-20"
+                            animate={{ x: ['-100%', '500%'] }}
+                            transition={{
+                                duration: 2.5,
+                                repeat: Infinity,
+                                ease: "linear",
+                                repeatType: "loop"
+                            }}
+                            style={{ willChange: "transform" }}
+                        />
+                    </motion.div>
                 </div>
-                <div className="mt-2 text-sm text-blue-600">
-                    {getStatusDescription()}
+                <div className="mt-3 text-sm text-blue-600 flex items-center">
+                    <motion.div
+                        animate={{ opacity: [0.8, 1, 0.8] }}
+                        transition={{
+                            duration: 2,
+                            repeat: Infinity,
+                            repeatType: "reverse",
+                            ease: "easeInOut"
+                        }}
+                    >
+                        {getStatusDescription()}
+                    </motion.div>
                 </div>
             </motion.div>
         );
@@ -1207,6 +966,335 @@ export default function ConversationPanel() {
     const resetUIState = () => {
         setAgentStatus('waiting_for_input');
         cleanupDuplicateMessages();
+    };
+
+    // Update processResumeWithBackend to maintain continuous progress
+    const processResumeWithBackend = async (file: File) => {
+        if (!user) {
+            console.error("No user found");
+            return { success: false, error: "No authenticated user" };
+        }
+
+        // Don't reprocess if already complete
+        if (processingComplete) {
+            console.log("Resume already processed, skipping processing");
+            return { success: true, data: suggestions, parsedText: onboardingData.resume.parsedText };
+        }
+
+        try {
+            // Define progress ranges for each step to maintain continuity
+            const progressRanges = {
+                start: 0,
+                preprocess: 10,
+                parsing: 30,
+                analysis: 60,
+                suggestions: 85,
+                completion: 100
+            };
+
+            // Initialize progress at the very beginning only
+            setProcessProgress(progressRanges.start);
+
+            // Animate to the preprocessing stage - showing initial activity
+            animateProgressTo(progressRanges.preprocess, 800);
+
+            // Get public URL for the file (for reference only)
+            const { data: urlData } = supabase.storage
+                .from('user-uploads')
+                .getPublicUrl(`resumes/${user.id}/${Date.now()}-${file.name}`);
+
+            console.log("DEBUG: Resume URL:", urlData.publicUrl);
+
+            // Create a FormData object to send the file to the parse endpoint
+            const formData = new FormData();
+            formData.append('file', file);
+
+            console.log("DEBUG: Calling parse API...");
+
+            // Animate to parsing stage
+            animateProgressTo(progressRanges.parsing, 1500);
+
+            const parseResponse = await fetch('http://localhost:8000/parse', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!parseResponse.ok) {
+                throw new Error(`Resume parsing API failed with status: ${parseResponse.status}`);
+            }
+
+            // Animate to analysis stage after parsing completes
+            animateProgressTo(progressRanges.analysis, 1500);
+
+            // Get the parsed text
+            const parseData = await parseResponse.json();
+            console.log('Resume parsed successfully by backend:', parseData);
+            const parsedText = parseData.markdown;
+
+            // Update the Supabase profile with the parsed text
+            await supabase
+                .from('profiles')
+                .update({
+                    resume_text: parsedText
+                })
+                .eq('user_id', user.id);
+
+            // Make the API call to get suggestions
+            console.log("DEBUG: Calling suggestions API...");
+
+            // Animate to suggestions stage
+            animateProgressTo(progressRanges.suggestions, 1200);
+
+            const response = await fetch('http://localhost:8000/suggestions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    user_id: user.id
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`Resume processing API failed with status: ${response.status}`);
+            }
+
+            // Get the response data
+            const data = await response.json();
+            console.log('Resume processed successfully by backend:', data);
+
+            // Store the complete suggestions data for use throughout the onboarding flow
+            setSuggestions(data);
+
+            // Silently store the data without showing messages
+            if (data.suggested_job_titles && data.suggested_job_titles.length > 0) {
+                updateJobPreference({ job_titles: data.suggested_job_titles }, false);
+            }
+
+            if (data.skills && data.skills.length > 0) {
+                // Clear existing skills
+                onboardingData.userSkills.forEach(skill => {
+                    removeSkill(skill.skill_name, false);
+                });
+
+                // Store skills from API
+                data.skills.forEach(skill => {
+                    addSkill({
+                        skill_name: skill,
+                        is_highlighted: false,
+                        source: 'resume'
+                    }, false);
+                });
+            }
+
+            // Process other data...
+            // Set experience level if suggested
+            if (data.recommended_experience_level) {
+                updateJobPreference({
+                    experience_level: data.recommended_experience_level
+                }, false);
+            }
+
+            // Set salary range if suggested
+            if (data.recommended_salary_range) {
+                updateJobPreference({
+                    salary_range: data.recommended_salary_range
+                }, false);
+            }
+
+            // Add recommended locations
+            if (data.recommended_locations && data.recommended_locations.length > 0) {
+                updateJobPreference({
+                    preferred_locations: data.recommended_locations
+                }, false);
+            }
+
+            // Add recommended industries
+            if (data.recommended_industries && data.recommended_industries.length > 0) {
+                updateJobPreference({
+                    preferred_industries: data.recommended_industries
+                }, false);
+            }
+
+            // Animate to completion
+            animateProgressTo(progressRanges.completion, 800);
+
+            // Short delay before returning to ensure animation completes
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            return { success: true, data, parsedText };
+        } catch (error) {
+            console.error("Resume processing API error:", error);
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : "Unknown error during resume processing"
+            };
+        }
+    };
+
+    // Update the file upload handler to properly handle processing state
+    const handleFileUpload = async (file: File) => {
+        if (!file) {
+            console.error("No file selected");
+            return;
+        }
+
+        console.log('File selected:', file.name, 'Type:', file.type, 'Size:', file.size);
+
+        // Set processing as not complete at the start
+        setProcessingComplete(false);
+
+        // Immediately set status to processing_resume
+        setAgentStatus('processing_resume');
+
+        // Validate file type
+        const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+        if (!allowedTypes.includes(file.type)) {
+            toast({
+                title: "Invalid file type",
+                description: "Please upload a PDF or Word document (.doc, .docx)",
+                variant: "destructive",
+            });
+            setAgentStatus('waiting_for_input');
+            return;
+        }
+
+        try {
+            // Clear previous messages
+            cleanupDuplicateMessages();
+
+            // Show a single status message
+            addMessage({
+                sender: 'agent',
+                content: 'Processing your resume and analyzing your skills...',
+                type: 'text'
+            });
+
+            // Upload file to storage
+            await uploadResume(file);
+
+            // Make sure we're still in processing state
+            setAgentStatus('processing_resume');
+
+            // Process the resume with the backend
+            const result = await processResumeWithBackend(file);
+
+            if (result.success) {
+                // If we have parsed text, update the resume object with it
+                if (result.parsedText) {
+                    await uploadResume(file, onboardingData.resume.url, result.parsedText);
+                }
+
+                // Update the agent status to waiting_for_input to ensure UI is responsive
+                setAgentStatus('waiting_for_input');
+
+                // Mark processing as complete AFTER all the processing is done
+                setProcessingComplete(true);
+
+                // Add a success message
+                addMessage({
+                    sender: 'agent',
+                    content: 'Your resume has been processed successfully! Click "Continue" to set up your profile.',
+                    type: 'text'
+                });
+            } else {
+                // Handle processing error
+                console.error("Resume processing failed:", result.error);
+
+                // Always set agent status back to waiting_for_input
+                setAgentStatus('waiting_for_input');
+
+                // Mark processing as not complete
+                setProcessingComplete(false);
+
+                // Show error message
+                addMessage({
+                    sender: 'agent',
+                    content: "I encountered an issue while processing your resume: " + (result.error || "Unknown error"),
+                    type: 'text'
+                });
+            }
+        } catch (error) {
+            console.error("Resume upload failed:", error);
+            toast({
+                title: "Upload failed",
+                description: "There was an error uploading your resume. Please try again.",
+                variant: "destructive",
+            });
+
+            // Always restore agent status to enable interaction
+            setAgentStatus('waiting_for_input');
+
+            // Mark processing as not complete
+            setProcessingComplete(false);
+
+            // Show a recovery message
+            addMessage({
+                sender: 'agent',
+                content: "I'm sorry, there was a problem uploading your resume. Please try again.",
+                type: 'text'
+            });
+        }
+    };
+
+    // Handle experience level selection
+    const handleExperienceLevelSelect = (value: string) => {
+        updateJobPreference({ experience_level: value });
+
+        // Add a system message about automatic advancement
+        addMessage({
+            sender: 'system',
+            content: 'Selection saved. Moving to next step automatically...',
+            type: 'text'
+        });
+
+        // Use a slight delay so the user sees their selection and the message
+        setTimeout(() => goToNextStep(), 1200);
+    };
+
+    // Handle salary range selection
+    const handleSalaryRangeSelect = (value: string) => {
+        updateJobPreference({ salary_range: value });
+
+        // Add a system message about automatic advancement
+        addMessage({
+            sender: 'system',
+            content: 'Selection saved. Moving to next step automatically...',
+            type: 'text'
+        });
+
+        setTimeout(() => goToNextStep(), 1200);
+    };
+
+    // Handle job search status selection
+    const handleJobSearchStatusSelect = (value: string) => {
+        updateJobPreference({ job_search_status: value });
+
+        // Add a system message about automatic advancement
+        addMessage({
+            sender: 'system',
+            content: 'Selection saved. Moving to next step automatically...',
+            type: 'text'
+        });
+
+        setTimeout(() => goToNextStep(), 1200);
+    };
+
+    // Handle remote preference toggle
+    const handleRemotePreferenceToggle = (value: boolean) => {
+        updateJobPreference({ remote_preference: value });
+        // Don't auto-advance for toggle as user may want to change their mind
+    };
+
+    // Helper to toggle skill highlighting
+    const toggleSkillHighlight = (skillName: string) => {
+        const existingSkill = onboardingData.userSkills.find(s => s.skill_name === skillName);
+        if (existingSkill) {
+            addSkill({
+                ...existingSkill,
+                is_highlighted: !existingSkill.is_highlighted
+            });
+        }
     };
 
     // Update the return function to remove extra buttons and controls
