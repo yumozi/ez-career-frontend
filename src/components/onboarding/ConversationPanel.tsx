@@ -21,6 +21,24 @@ import {
     ConfirmationButtons
 } from './InteractionComponents';
 
+// Define the types locally
+interface JobPreference {
+    job_titles: string[];
+    experience_level: string;
+    salary_range: string;
+    job_search_status: string;
+    preferred_locations: string[];
+    remote_preference: boolean;
+    preferred_industries: string[];
+}
+
+interface UserSkill {
+    skill_name: string;
+    proficiency_level?: string;
+    is_highlighted: boolean;
+    source: 'resume' | 'user_input' | 'agent_suggestion';
+}
+
 export default function ConversationPanel() {
     const navigate = useNavigate();
     const { user } = useAuth();
@@ -502,30 +520,87 @@ export default function ConversationPanel() {
         return rangeMap[range] || range;
     };
 
-    // Add a custom function to handle the continue button click
-    const handleContinueAfterProcessing = () => {
-        // Find the job_titles step index (skip resume_analysis)
-        const jobTitlesIndex = stepOrder.indexOf('job_titles');
+    // Create a shared function to handle the continue action with natural messages
+    const handleContinueClick = () => {
+        // Create a natural-sounding message based on the current step
+        let userMessage = "";
 
-        if (jobTitlesIndex !== -1) {
-            // Set the step directly to job_titles
-            setCurrentStep('job_titles');
-            // Update progress percentage
-            setProgressPercentage(stepProgressMap['job_titles']);
+        // Helper variables that need to be declared outside of case blocks
+        let statusMap: Record<string, string>;
+        let status: string;
+        let locations: string;
+        let industries: string;
+        let jobTitles: string;
 
-            // Add a message about moving to the next phase
+        switch (currentStep) {
+            case 'experience_level':
+                userMessage = `My experience level is ${getExperienceLevelLabel(onboardingData.jobPreference.experience_level)}.`;
+                break;
+            case 'salary_expectations':
+                userMessage = `I'm looking for a salary in the range of ${getSalaryRangeLabel(onboardingData.jobPreference.salary_range)}.`;
+                break;
+            case 'job_search_status':
+                statusMap = {
+                    'actively_looking': 'actively looking for new opportunities',
+                    'passively_looking': 'open to new opportunities, but not actively searching',
+                    'not_looking': 'not currently looking for a new position',
+                    'urgent': 'urgently seeking new opportunities'
+                };
+                status = statusMap[onboardingData.jobPreference.job_search_status] || onboardingData.jobPreference.job_search_status;
+                userMessage = `I'm ${status}.`;
+                break;
+            case 'skills_verification':
+                userMessage = "These are the skills I'd like to highlight in my profile.";
+                break;
+            case 'location_preferences':
+                locations = onboardingData.jobPreference.preferred_locations.join(', ');
+                userMessage = `I'm interested in working in ${locations}.`;
+                break;
+            case 'remote_preferences':
+                userMessage = onboardingData.jobPreference.remote_preference
+                    ? "I'm open to remote work opportunities."
+                    : "I prefer on-site positions.";
+                break;
+            case 'industry_preferences':
+                industries = onboardingData.jobPreference.preferred_industries.join(', ');
+                userMessage = `I'm interested in the following industries: ${industries}.`;
+                break;
+            case 'job_titles':
+                jobTitles = onboardingData.jobPreference.job_titles.join(', ');
+                userMessage = `I'm looking for positions like: ${jobTitles}.`;
+                break;
+            default:
+                userMessage = "I'm ready to proceed to the next step.";
+        }
+
+        // Add the natural user message
+        addMessage({
+            sender: 'user',
+            content: userMessage,
+            type: 'text'
+        });
+
+        // Short delay before showing system message and advancing
+        setTimeout(() => {
+            // Add an acknowledgment message
             addMessage({
                 sender: 'agent',
-                content: 'Based on your resume, here are some suggested job titles. You can select from these or add your own using the input field below.',
+                content: "Thanks for providing that information. Let's continue with the next step.",
                 type: 'text'
             });
 
-            // Ensure agent status is ready for input
-            setAgentStatus('waiting_for_input');
-        } else {
-            // Fallback to normal next step if for some reason job_titles isn't found
+            // Go to next step
             goToNextStep();
-        }
+        }, 500);
+    };
+
+    // Create "silent" versions of the context functions that set recordInChat to false
+    const updateJobPreferenceSilent = (preference: Partial<JobPreference>) => {
+        updateJobPreference(preference, false);
+    };
+
+    const addSkillSilent = (skill: UserSkill) => {
+        addSkill(skill, false);
     };
 
     // Modify the renderInteractiveElements function to use the custom continue handler
@@ -615,6 +690,18 @@ export default function ConversationPanel() {
                         onSelect={handleExperienceLevelSelect}
                         selectedValues={onboardingData.jobPreference.experience_level ? [onboardingData.jobPreference.experience_level] : []}
                     />
+
+                    {/* Add Continue button to control when to advance */}
+                    {onboardingData.jobPreference.experience_level && (
+                        <div className="flex justify-end mt-4">
+                            <Button
+                                onClick={handleContinueClick}
+                                className="bg-blue-600 hover:bg-blue-700 text-white"
+                            >
+                                Continue
+                            </Button>
+                        </div>
+                    )}
                 </>
             );
         }
@@ -648,6 +735,18 @@ export default function ConversationPanel() {
                         onSelect={handleSalaryRangeSelect}
                         selectedValues={onboardingData.jobPreference.salary_range ? [onboardingData.jobPreference.salary_range] : []}
                     />
+
+                    {/* Add Continue button to control when to advance */}
+                    {onboardingData.jobPreference.salary_range && (
+                        <div className="flex justify-end mt-4">
+                            <Button
+                                onClick={handleContinueClick}
+                                className="bg-blue-600 hover:bg-blue-700 text-white"
+                            >
+                                Continue
+                            </Button>
+                        </div>
+                    )}
                 </>
             );
         }
@@ -658,7 +757,7 @@ export default function ConversationPanel() {
                 <div className="space-y-4 mt-2">
                     <TextInputWithAdd
                         placeholder="Add a job title"
-                        onAdd={(value) => updateJobPreference({
+                        onAdd={(value) => updateJobPreferenceSilent({
                             job_titles: [...onboardingData.jobPreference.job_titles, value]
                         })}
                     />
@@ -667,7 +766,7 @@ export default function ConversationPanel() {
                         <div className="mt-4">
                             <SelectedItemsDisplay
                                 items={onboardingData.jobPreference.job_titles}
-                                onRemove={(item) => updateJobPreference({
+                                onRemove={(item) => updateJobPreferenceSilent({
                                     job_titles: onboardingData.jobPreference.job_titles.filter(t => t !== item)
                                 })}
                             />
@@ -678,17 +777,36 @@ export default function ConversationPanel() {
                     {suggestions?.suggested_job_titles && suggestions.suggested_job_titles.length > 0 && (
                         <div className="mt-6">
                             <div className="bg-blue-50 p-3 rounded-md border border-blue-100 mb-2">
-                                <h3 className="text-sm font-semibold text-blue-700 flex items-center">
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                    Recommended Job Titles
-                                </h3>
-                                <p className="text-xs text-blue-600 mt-1">These suggestions are based on your resume</p>
+                                <div className="flex justify-between items-center">
+                                    <h3 className="text-sm font-semibold text-blue-700 flex items-center">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        Recommended Job Titles
+                                    </h3>
+                                    <button
+                                        onClick={() => {
+                                            // Get only suggestions that aren't already selected
+                                            const newTitles = suggestions.suggested_job_titles.filter(
+                                                title => !onboardingData.jobPreference.job_titles.includes(title)
+                                            );
+
+                                            if (newTitles.length > 0) {
+                                                updateJobPreferenceSilent({
+                                                    job_titles: [...onboardingData.jobPreference.job_titles, ...newTitles]
+                                                });
+                                            }
+                                        }}
+                                        className="text-xs px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-md transition-colors"
+                                    >
+                                        Select All
+                                    </button>
+                                </div>
+                                <p className="text-xs text-blue-600 mt-1">These suggestions are based on your resume - click to add</p>
                             </div>
                             <SuggestedItems
                                 items={suggestions.suggested_job_titles}
-                                onAdd={(item) => updateJobPreference({
+                                onAdd={(item) => updateJobPreferenceSilent({
                                     job_titles: [...onboardingData.jobPreference.job_titles, item]
                                 })}
                                 currentItems={onboardingData.jobPreference.job_titles}
@@ -699,7 +817,7 @@ export default function ConversationPanel() {
                     {onboardingData.jobPreference.job_titles.length > 0 && (
                         <div className="flex justify-end mt-6">
                             <Button
-                                onClick={goToNextStep}
+                                onClick={handleContinueClick}
                                 className="bg-blue-600 hover:bg-blue-700 text-white"
                             >
                                 Continue
@@ -714,16 +832,30 @@ export default function ConversationPanel() {
         switch (currentStep) {
             case 'job_search_status':
                 return (
-                    <OptionSelector
-                        options={[
-                            { value: 'actively_looking', label: 'Actively looking' },
-                            { value: 'passively_looking', label: 'Passively looking' },
-                            { value: 'not_looking', label: 'Not currently looking' },
-                            { value: 'urgent', label: 'Urgently seeking opportunities' }
-                        ]}
-                        onSelect={handleJobSearchStatusSelect}
-                        selectedValues={onboardingData.jobPreference.job_search_status ? [onboardingData.jobPreference.job_search_status] : []}
-                    />
+                    <div className="space-y-4">
+                        <OptionSelector
+                            options={[
+                                { value: 'actively_looking', label: 'Actively looking' },
+                                { value: 'passively_looking', label: 'Passively looking' },
+                                { value: 'not_looking', label: 'Not currently looking' },
+                                { value: 'urgent', label: 'Urgently seeking opportunities' }
+                            ]}
+                            onSelect={handleJobSearchStatusSelect}
+                            selectedValues={onboardingData.jobPreference.job_search_status ? [onboardingData.jobPreference.job_search_status] : []}
+                        />
+
+                        {/* Add Continue button to control when to advance */}
+                        {onboardingData.jobPreference.job_search_status && (
+                            <div className="flex justify-end mt-4">
+                                <Button
+                                    onClick={handleContinueClick}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                                >
+                                    Continue
+                                </Button>
+                            </div>
+                        )}
+                    </div>
                 );
 
             case 'skills_verification':
@@ -731,7 +863,7 @@ export default function ConversationPanel() {
                     <div className="space-y-4">
                         <TextInputWithAdd
                             placeholder="Add a skill"
-                            onAdd={(value) => addSkill({
+                            onAdd={(value) => addSkillSilent({
                                 skill_name: value,
                                 is_highlighted: false,
                                 source: 'user_input'
@@ -751,10 +883,57 @@ export default function ConversationPanel() {
                             </div>
                         )}
 
+                        {/* Display suggested skills if available */}
+                        {suggestions?.skills && suggestions.skills.length > 0 && (
+                            <div className="mt-4">
+                                <div className="bg-blue-50 p-3 rounded-md border border-blue-100 mb-2">
+                                    <div className="flex justify-between items-center">
+                                        <h3 className="text-sm font-semibold text-blue-700 flex items-center">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                            Recommended Skills
+                                        </h3>
+                                        <button
+                                            onClick={() => {
+                                                // Get only suggestions that aren't already added
+                                                const existingSkills = onboardingData.userSkills.map(s => s.skill_name);
+                                                const newSkills = suggestions.skills.filter(
+                                                    skill => !existingSkills.includes(skill)
+                                                );
+
+                                                // Add each new skill
+                                                newSkills.forEach(skill => {
+                                                    addSkillSilent({
+                                                        skill_name: skill,
+                                                        is_highlighted: false,
+                                                        source: 'resume'
+                                                    });
+                                                });
+                                            }}
+                                            className="text-xs px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-md transition-colors"
+                                        >
+                                            Select All
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-blue-600 mt-1">These skills were extracted from your resume - click to add</p>
+                                </div>
+                                <SuggestedItems
+                                    items={suggestions.skills}
+                                    onAdd={(item) => addSkillSilent({
+                                        skill_name: item,
+                                        is_highlighted: false,
+                                        source: 'resume'
+                                    })}
+                                    currentItems={onboardingData.userSkills.map(s => s.skill_name)}
+                                />
+                            </div>
+                        )}
+
                         {onboardingData.userSkills.length > 0 && (
                             <div className="flex justify-end mt-4">
                                 <Button
-                                    onClick={goToNextStep}
+                                    onClick={handleContinueClick}
                                     className="bg-blue-600 hover:bg-blue-700 text-white"
                                 >
                                     Continue
@@ -769,7 +948,7 @@ export default function ConversationPanel() {
                     <div className="space-y-4">
                         <TextInputWithAdd
                             placeholder="Add a location"
-                            onAdd={(value) => updateJobPreference({
+                            onAdd={(value) => updateJobPreferenceSilent({
                                 preferred_locations: [...onboardingData.jobPreference.preferred_locations, value]
                             })}
                         />
@@ -777,7 +956,7 @@ export default function ConversationPanel() {
                         {onboardingData.jobPreference.preferred_locations.length > 0 && (
                             <SelectedItemsDisplay
                                 items={onboardingData.jobPreference.preferred_locations}
-                                onRemove={(item) => updateJobPreference({
+                                onRemove={(item) => updateJobPreferenceSilent({
                                     preferred_locations: onboardingData.jobPreference.preferred_locations.filter(l => l !== item)
                                 })}
                             />
@@ -787,17 +966,36 @@ export default function ConversationPanel() {
                         {suggestions?.recommended_locations && suggestions.recommended_locations.length > 0 && (
                             <div className="mt-4">
                                 <div className="bg-blue-50 p-3 rounded-md border border-blue-100 mb-2">
-                                    <h3 className="text-sm font-semibold text-blue-700 flex items-center">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                        </svg>
-                                        Recommended Locations
-                                    </h3>
-                                    <p className="text-xs text-blue-600 mt-1">These suggestions are based on your resume</p>
+                                    <div className="flex justify-between items-center">
+                                        <h3 className="text-sm font-semibold text-blue-700 flex items-center">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                            Recommended Locations
+                                        </h3>
+                                        <button
+                                            onClick={() => {
+                                                // Get only suggestions that aren't already selected
+                                                const newLocations = suggestions.recommended_locations.filter(
+                                                    location => !onboardingData.jobPreference.preferred_locations.includes(location)
+                                                );
+
+                                                if (newLocations.length > 0) {
+                                                    updateJobPreferenceSilent({
+                                                        preferred_locations: [...onboardingData.jobPreference.preferred_locations, ...newLocations]
+                                                    });
+                                                }
+                                            }}
+                                            className="text-xs px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-md transition-colors"
+                                        >
+                                            Select All
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-blue-600 mt-1">These locations are based on your resume - click to add</p>
                                 </div>
                                 <SuggestedItems
                                     items={suggestions.recommended_locations}
-                                    onAdd={(item) => updateJobPreference({
+                                    onAdd={(item) => updateJobPreferenceSilent({
                                         preferred_locations: [...onboardingData.jobPreference.preferred_locations, item]
                                     })}
                                     currentItems={onboardingData.jobPreference.preferred_locations}
@@ -808,7 +1006,7 @@ export default function ConversationPanel() {
                         {onboardingData.jobPreference.preferred_locations.length > 0 && (
                             <div className="flex justify-end mt-4">
                                 <Button
-                                    onClick={goToNextStep}
+                                    onClick={handleContinueClick}
                                     className="bg-blue-600 hover:bg-blue-700 text-white"
                                 >
                                     Continue
@@ -829,7 +1027,7 @@ export default function ConversationPanel() {
 
                         <div className="flex justify-end mt-4">
                             <Button
-                                onClick={goToNextStep}
+                                onClick={handleContinueClick}
                                 className="bg-blue-600 hover:bg-blue-700 text-white"
                             >
                                 Continue
@@ -843,7 +1041,7 @@ export default function ConversationPanel() {
                     <div className="space-y-4">
                         <TextInputWithAdd
                             placeholder="Add an industry"
-                            onAdd={(value) => updateJobPreference({
+                            onAdd={(value) => updateJobPreferenceSilent({
                                 preferred_industries: [...onboardingData.jobPreference.preferred_industries, value]
                             })}
                         />
@@ -851,7 +1049,7 @@ export default function ConversationPanel() {
                         {onboardingData.jobPreference.preferred_industries.length > 0 && (
                             <SelectedItemsDisplay
                                 items={onboardingData.jobPreference.preferred_industries}
-                                onRemove={(item) => updateJobPreference({
+                                onRemove={(item) => updateJobPreferenceSilent({
                                     preferred_industries: onboardingData.jobPreference.preferred_industries.filter(i => i !== item)
                                 })}
                             />
@@ -861,17 +1059,36 @@ export default function ConversationPanel() {
                         {suggestions?.recommended_industries && suggestions.recommended_industries.length > 0 && (
                             <div className="mt-4">
                                 <div className="bg-blue-50 p-3 rounded-md border border-blue-100 mb-2">
-                                    <h3 className="text-sm font-semibold text-blue-700 flex items-center">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                        </svg>
-                                        Recommended Industries
-                                    </h3>
-                                    <p className="text-xs text-blue-600 mt-1">These suggestions are based on your resume</p>
+                                    <div className="flex justify-between items-center">
+                                        <h3 className="text-sm font-semibold text-blue-700 flex items-center">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                            Recommended Industries
+                                        </h3>
+                                        <button
+                                            onClick={() => {
+                                                // Get only suggestions that aren't already selected
+                                                const newIndustries = suggestions.recommended_industries.filter(
+                                                    industry => !onboardingData.jobPreference.preferred_industries.includes(industry)
+                                                );
+
+                                                if (newIndustries.length > 0) {
+                                                    updateJobPreferenceSilent({
+                                                        preferred_industries: [...onboardingData.jobPreference.preferred_industries, ...newIndustries]
+                                                    });
+                                                }
+                                            }}
+                                            className="text-xs px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-md transition-colors"
+                                        >
+                                            Select All
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-blue-600 mt-1">These industries are based on your resume - click to add</p>
                                 </div>
                                 <SuggestedItems
                                     items={suggestions.recommended_industries}
-                                    onAdd={(item) => updateJobPreference({
+                                    onAdd={(item) => updateJobPreferenceSilent({
                                         preferred_industries: [...onboardingData.jobPreference.preferred_industries, item]
                                     })}
                                     currentItems={onboardingData.jobPreference.preferred_industries}
@@ -882,7 +1099,7 @@ export default function ConversationPanel() {
                         {onboardingData.jobPreference.preferred_industries.length > 0 && (
                             <div className="flex justify-end mt-4">
                                 <Button
-                                    onClick={goToNextStep}
+                                    onClick={handleContinueClick}
                                     className="bg-blue-600 hover:bg-blue-700 text-white"
                                 >
                                     Continue
@@ -895,7 +1112,17 @@ export default function ConversationPanel() {
             case 'completion':
                 return (
                     <ConfirmationButtons
-                        onConfirm={handleComplete}
+                        onConfirm={() => {
+                            // First send the natural message
+                            addMessage({
+                                sender: 'user',
+                                content: "My profile looks good! I'm ready to complete the setup.",
+                                type: 'text'
+                            });
+
+                            // Then handle the completion
+                            setTimeout(() => handleComplete(), 500);
+                        }}
                         onReject={() => {
                             // Allow user to input final comments
                             setUserInput('');
@@ -1066,54 +1293,19 @@ export default function ConversationPanel() {
             // Store the complete suggestions data for use throughout the onboarding flow
             setSuggestions(data);
 
-            // Silently store the data without showing messages
-            if (data.suggested_job_titles && data.suggested_job_titles.length > 0) {
-                updateJobPreference({ job_titles: data.suggested_job_titles }, false);
-            }
-
-            if (data.skills && data.skills.length > 0) {
-                // Clear existing skills
-                onboardingData.userSkills.forEach(skill => {
-                    removeSkill(skill.skill_name, false);
-                });
-
-                // Store skills from API
-                data.skills.forEach(skill => {
-                    addSkill({
-                        skill_name: skill,
-                        is_highlighted: false,
-                        source: 'resume'
-                    }, false);
-                });
-            }
-
             // Process other data...
             // Set experience level if suggested
             if (data.recommended_experience_level) {
-                updateJobPreference({
+                updateJobPreferenceSilent({
                     experience_level: data.recommended_experience_level
-                }, false);
+                });
             }
 
             // Set salary range if suggested
             if (data.recommended_salary_range) {
-                updateJobPreference({
+                updateJobPreferenceSilent({
                     salary_range: data.recommended_salary_range
-                }, false);
-            }
-
-            // Add recommended locations
-            if (data.recommended_locations && data.recommended_locations.length > 0) {
-                updateJobPreference({
-                    preferred_locations: data.recommended_locations
-                }, false);
-            }
-
-            // Add recommended industries
-            if (data.recommended_industries && data.recommended_industries.length > 0) {
-                updateJobPreference({
-                    preferred_industries: data.recommended_industries
-                }, false);
+                });
             }
 
             // Animate to completion
@@ -1239,62 +1431,73 @@ export default function ConversationPanel() {
 
     // Handle experience level selection
     const handleExperienceLevelSelect = (value: string) => {
-        updateJobPreference({ experience_level: value });
-
-        // Add a system message about automatic advancement
-        addMessage({
-            sender: 'system',
-            content: 'Selection saved. Moving to next step automatically...',
-            type: 'text'
-        });
-
-        // Use a slight delay so the user sees their selection and the message
-        setTimeout(() => goToNextStep(), 1200);
+        // Just update the preference without sending messages
+        updateJobPreferenceSilent({ experience_level: value });
     };
 
     // Handle salary range selection
     const handleSalaryRangeSelect = (value: string) => {
-        updateJobPreference({ salary_range: value });
-
-        // Add a system message about automatic advancement
-        addMessage({
-            sender: 'system',
-            content: 'Selection saved. Moving to next step automatically...',
-            type: 'text'
-        });
-
-        setTimeout(() => goToNextStep(), 1200);
+        // Just update the preference without sending messages
+        updateJobPreferenceSilent({ salary_range: value });
     };
 
     // Handle job search status selection
     const handleJobSearchStatusSelect = (value: string) => {
-        updateJobPreference({ job_search_status: value });
-
-        // Add a system message about automatic advancement
-        addMessage({
-            sender: 'system',
-            content: 'Selection saved. Moving to next step automatically...',
-            type: 'text'
-        });
-
-        setTimeout(() => goToNextStep(), 1200);
+        // Just update the preference without sending messages
+        updateJobPreferenceSilent({ job_search_status: value });
     };
 
     // Handle remote preference toggle
     const handleRemotePreferenceToggle = (value: boolean) => {
-        updateJobPreference({ remote_preference: value });
-        // Don't auto-advance for toggle as user may want to change their mind
+        updateJobPreferenceSilent({ remote_preference: value });
     };
 
     // Helper to toggle skill highlighting
     const toggleSkillHighlight = (skillName: string) => {
         const existingSkill = onboardingData.userSkills.find(s => s.skill_name === skillName);
         if (existingSkill) {
-            addSkill({
+            addSkillSilent({
                 ...existingSkill,
                 is_highlighted: !existingSkill.is_highlighted
             });
         }
+    };
+
+    // Updated function to handle continuing after resume processing
+    const handleContinueAfterProcessing = () => {
+        // Add a natural user message about completing resume processing
+        addMessage({
+            sender: 'user',
+            content: "I've uploaded my resume and am ready to continue with the job search setup.",
+            type: 'text'
+        });
+
+        // Short delay before proceeding
+        setTimeout(() => {
+            // Find the job_titles step index (skip resume_analysis)
+            const jobTitlesIndex = stepOrder.indexOf('job_titles');
+
+            if (jobTitlesIndex !== -1) {
+                // Add agent response with guidance
+                addMessage({
+                    sender: 'agent',
+                    content: 'Based on your resume, here are some suggested job titles. You can select from these or add your own using the input field below.',
+                    type: 'text'
+                });
+
+                // Set the step directly to job_titles
+                setCurrentStep('job_titles');
+
+                // Update progress percentage
+                setProgressPercentage(stepProgressMap['job_titles']);
+
+                // Ensure agent status is ready for input
+                setAgentStatus('waiting_for_input');
+            } else {
+                // Fallback to normal next step if for some reason job_titles isn't found
+                goToNextStep();
+            }
+        }, 500);
     };
 
     // Update the return function to remove extra buttons and controls
