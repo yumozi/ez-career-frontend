@@ -372,7 +372,42 @@ export default function ConversationPanel() {
 
             console.log("DEBUG: Resume URL:", urlData.publicUrl);
 
-            // Show getting suggestions message
+            // Show parsing message
+            addMessage({
+                sender: 'agent',
+                content: "I'm parsing your resume to extract text...",
+                type: 'text'
+            });
+
+            // MISSING STEP: Parse the PDF to text using the parse endpoint
+            // Create a FormData object to send the file to the parse endpoint
+            const formData = new FormData();
+            formData.append('file', file);
+
+            console.log("DEBUG: Calling parse API...");
+            const parseResponse = await fetch('http://localhost:8000/parse', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!parseResponse.ok) {
+                throw new Error(`Resume parsing API failed with status: ${parseResponse.status}`);
+            }
+
+            // Get the parsed text
+            const parseData = await parseResponse.json();
+            console.log('Resume parsed successfully by backend:', parseData);
+            const parsedText = parseData.markdown;
+
+            // Update the Supabase profile with the parsed text
+            await supabase
+                .from('profiles')
+                .update({
+                    resume_text: parsedText
+                })
+                .eq('user_id', user.id);
+
+            // Now show getting suggestions message
             addMessage({
                 sender: 'agent',
                 content: "I'm analyzing your resume to provide personalized suggestions for your profile...",
@@ -458,7 +493,7 @@ export default function ConversationPanel() {
                 }, false);
             }
 
-            return { success: true, data };
+            return { success: true, data, parsedText };
         } catch (error) {
             console.error("Resume processing API error:", error);
             return {
@@ -593,6 +628,11 @@ export default function ConversationPanel() {
             const result = await processResumeWithBackend(file);
 
             if (result.success) {
+                // If we have parsed text, update the resume object with it
+                if (result.parsedText) {
+                    await uploadResume(file, onboardingData.resume.url, result.parsedText);
+                }
+
                 // Update the agent status and add a success message
                 setAgentStatus('waiting_for_input');
 
