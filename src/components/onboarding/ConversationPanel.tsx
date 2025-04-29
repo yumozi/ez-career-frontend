@@ -39,6 +39,21 @@ interface UserSkill {
     source: 'resume' | 'user_input' | 'agent_suggestion';
 }
 
+// Define a more complete type for steps including all possible steps
+type AllOnboardingSteps =
+    | 'welcome'
+    | 'job_titles'
+    | 'experience_level'
+    | 'salary_expectations'
+    | 'job_search_status'
+    | 'resume_upload'
+    | 'resume_analysis'
+    | 'skills_verification'
+    | 'location_preferences'
+    | 'remote_preferences'
+    | 'industry_preferences'
+    | 'completion';
+
 export default function ConversationPanel() {
     const navigate = useNavigate();
     const { user } = useAuth();
@@ -62,7 +77,7 @@ export default function ConversationPanel() {
         setMessages
     } = useOnboarding();
 
-    // Get the step order and progress map from useOnboarding - we'll define these here since they're not exported
+    // Fix the step order definition to include all steps and use it for type definition
     const stepOrder: string[] = [
         'welcome',
         'resume_upload',
@@ -117,6 +132,7 @@ export default function ConversationPanel() {
     } | null>(null);
     const [isTransitioning, setIsTransitioning] = useState(false);
     const [processingComplete, setProcessingComplete] = useState(false);
+    const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false);
 
     // Scroll to bottom whenever messages change
     useEffect(() => {
@@ -219,82 +235,25 @@ export default function ConversationPanel() {
         }
     };
 
-    const handleSendMessage = async () => {
-        if (!userInput.trim() || isSending) return;
-
-        setIsSending(true);
-
-        // Add user message to chat
-        addMessage({
-            sender: 'user',
-            content: userInput.trim(),
-            type: 'text'
-        });
-
-        // Clear input field
-        setUserInput('');
-
-        // Show agent is thinking
-        setAgentStatus('thinking');
-
-        // Simulate agent thinking (in a real app, this would be an API call)
-        setTimeout(() => {
-            // Add agent response with clearer instructions for each step
-            let responseMessage = "I'm here to help you set up your profile. ";
-
-            switch (currentStep) {
-                case 'welcome':
-                    responseMessage += "Let's get started by uploading your resume. Please use the upload button below.";
-                    break;
-                case 'resume_upload':
-                    responseMessage += "Please upload your resume using the button below so I can help personalize your profile.";
-                    break;
-                case 'job_titles':
-                    responseMessage += "Please add job titles you're interested in using the input field below. You can add multiple titles.";
-                    break;
-                case 'experience_level':
-                    responseMessage += "Please select your experience level from the options below.";
-                    break;
-                case 'salary_expectations':
-                    responseMessage += "What are your salary expectations? Please select an option below.";
-                    break;
-                case 'job_search_status':
-                    responseMessage += "What is your current job search status? Select the option that best describes your situation.";
-                    break;
-                case 'skills_verification':
-                    responseMessage += "I've identified these skills from your resume. Please confirm them, add any missing ones, or highlight important skills using the star icon.";
-                    break;
-                case 'location_preferences':
-                    responseMessage += "Where would you prefer to work? Add your preferred locations using the input field below.";
-                    break;
-                case 'remote_preferences':
-                    responseMessage += "Are you open to remote work? Please toggle the switch below to indicate your preference.";
-                    break;
-                case 'industry_preferences':
-                    responseMessage += "What industries are you interested in? Add them using the input field below.";
-                    break;
-                case 'completion':
-                    responseMessage += "Great! We've completed your profile setup. Please review your information in the left panel and click 'Looks Good' if everything is correct.";
-                    break;
-                default:
-                    responseMessage += "Please follow the instructions below to continue with your profile setup.";
-            }
-
-            addMessage({
-                sender: 'agent',
-                content: responseMessage,
-                type: 'text'
-            });
-
-            setAgentStatus('waiting_for_input');
-            setIsSending(false);
-
-            // Focus back on input
-            inputRef.current?.focus();
-        }, 1500);
+    // Create function to get dynamic placeholder text based on current step
+    const getInputPlaceholder = () => {
+        if (currentStep === 'job_titles') {
+            return "Type a job title and press Enter...";
+        } else if (currentStep === 'skills_verification') {
+            return "Type a skill and press Enter...";
+        } else if (currentStep === 'location_preferences') {
+            return "Type a location and press Enter...";
+        } else if (currentStep === 'industry_preferences') {
+            return "Type an industry and press Enter...";
+        } else {
+            return "Type a message to the assistant...";
+        }
     };
 
     const handleComplete = async () => {
+        // Set completion in progress to disable buttons
+        setIsCompletingOnboarding(true);
+
         try {
             // Try to save all onboarding data first
             const success = await saveOnboardingData();
@@ -755,13 +714,6 @@ export default function ConversationPanel() {
         if (currentStep === 'job_titles') {
             return (
                 <div className="space-y-4 mt-2">
-                    <TextInputWithAdd
-                        placeholder="Add a job title"
-                        onAdd={(value) => updateJobPreferenceSilent({
-                            job_titles: [...onboardingData.jobPreference.job_titles, value]
-                        })}
-                    />
-
                     {onboardingData.jobPreference.job_titles.length > 0 && (
                         <div className="mt-4">
                             <SelectedItemsDisplay
@@ -861,15 +813,6 @@ export default function ConversationPanel() {
             case 'skills_verification':
                 return (
                     <div className="space-y-4">
-                        <TextInputWithAdd
-                            placeholder="Add a skill"
-                            onAdd={(value) => addSkillSilent({
-                                skill_name: value,
-                                is_highlighted: false,
-                                source: 'user_input'
-                            })}
-                        />
-
                         {onboardingData.userSkills.length > 0 && (
                             <div className="mt-2">
                                 <p className="text-sm font-medium mb-2">Your skills (highlight important ones with the star):</p>
@@ -946,13 +889,6 @@ export default function ConversationPanel() {
             case 'location_preferences':
                 return (
                     <div className="space-y-4">
-                        <TextInputWithAdd
-                            placeholder="Add a location"
-                            onAdd={(value) => updateJobPreferenceSilent({
-                                preferred_locations: [...onboardingData.jobPreference.preferred_locations, value]
-                            })}
-                        />
-
                         {onboardingData.jobPreference.preferred_locations.length > 0 && (
                             <SelectedItemsDisplay
                                 items={onboardingData.jobPreference.preferred_locations}
@@ -1039,13 +975,6 @@ export default function ConversationPanel() {
             case 'industry_preferences':
                 return (
                     <div className="space-y-4">
-                        <TextInputWithAdd
-                            placeholder="Add an industry"
-                            onAdd={(value) => updateJobPreferenceSilent({
-                                preferred_industries: [...onboardingData.jobPreference.preferred_industries, value]
-                            })}
-                        />
-
                         {onboardingData.jobPreference.preferred_industries.length > 0 && (
                             <SelectedItemsDisplay
                                 items={onboardingData.jobPreference.preferred_industries}
@@ -1120,6 +1049,9 @@ export default function ConversationPanel() {
                                 type: 'text'
                             });
 
+                            // Set completion in progress to disable buttons
+                            setIsCompletingOnboarding(true);
+
                             // Then handle the completion
                             setTimeout(() => handleComplete(), 500);
                         }}
@@ -1127,9 +1059,13 @@ export default function ConversationPanel() {
                             // Allow user to input final comments
                             setUserInput('');
                             inputRef.current?.focus();
+
+                            // Set completion in progress to disable buttons
+                            setIsCompletingOnboarding(true);
                         }}
                         confirmText="Looks Good"
                         rejectText="No, I want to add comment"
+                        disabled={isCompletingOnboarding}
                     />
                 );
 
@@ -1500,6 +1436,127 @@ export default function ConversationPanel() {
         }, 500);
     };
 
+    // Modify the handleSendMessage function to handle different input types
+    const handleSendMessage = async () => {
+        if (!userInput.trim() || isSending) return;
+
+        setIsSending(true);
+
+        // Handle different input types based on current step - using string comparison to avoid TypeScript issues
+        const currentStepString = currentStep as string;
+
+        if (currentStepString === 'job_titles') {
+            // Add job title without sending a message
+            updateJobPreferenceSilent({
+                job_titles: [...onboardingData.jobPreference.job_titles, userInput.trim()]
+            });
+            setUserInput('');
+            setIsSending(false);
+            return;
+        }
+
+        if (currentStepString === 'skills_verification') {
+            // Add skill without sending a message
+            addSkillSilent({
+                skill_name: userInput.trim(),
+                is_highlighted: false,
+                source: 'user_input'
+            });
+            setUserInput('');
+            setIsSending(false);
+            return;
+        }
+
+        if (currentStepString === 'location_preferences') {
+            // Add location without sending a message
+            updateJobPreferenceSilent({
+                preferred_locations: [...onboardingData.jobPreference.preferred_locations, userInput.trim()]
+            });
+            setUserInput('');
+            setIsSending(false);
+            return;
+        }
+
+        if (currentStepString === 'industry_preferences') {
+            // Add industry without sending a message
+            updateJobPreferenceSilent({
+                preferred_industries: [...onboardingData.jobPreference.preferred_industries, userInput.trim()]
+            });
+            setUserInput('');
+            setIsSending(false);
+            return;
+        }
+
+        // For other steps, handle as a normal message
+        addMessage({
+            sender: 'user',
+            content: userInput.trim(),
+            type: 'text'
+        });
+
+        // Clear input field
+        setUserInput('');
+
+        // Show agent is thinking
+        setAgentStatus('thinking');
+
+        // Simulate agent thinking (in a real app, this would be an API call)
+        setTimeout(() => {
+            // Add agent response with clearer instructions for each step
+            let responseMessage = "I'm here to help you set up your profile. ";
+
+            switch (currentStepString) {
+                case 'welcome':
+                    responseMessage += "Let's get started by uploading your resume. Please use the upload button below.";
+                    break;
+                case 'resume_upload':
+                    responseMessage += "Please upload your resume using the button below so I can help personalize your profile.";
+                    break;
+                case 'job_titles':
+                    responseMessage += "Please type job titles you're interested in the text field below. Press Enter after each title.";
+                    break;
+                case 'experience_level':
+                    responseMessage += "Please select your experience level from the options below.";
+                    break;
+                case 'salary_expectations':
+                    responseMessage += "What are your salary expectations? Please select an option below.";
+                    break;
+                case 'job_search_status':
+                    responseMessage += "What is your current job search status? Select the option that best describes your situation.";
+                    break;
+                case 'skills_verification':
+                    responseMessage += "Please type your skills in the text field below. Press Enter after each skill. You can also select skills from the suggestions if available.";
+                    break;
+                case 'location_preferences':
+                    responseMessage += "Please type your preferred work locations in the text field below. Press Enter after each location.";
+                    break;
+                case 'remote_preferences':
+                    responseMessage += "Are you open to remote work? Please toggle the switch below to indicate your preference.";
+                    break;
+                case 'industry_preferences':
+                    responseMessage += "Please type industries you're interested in the text field below. Press Enter after each industry.";
+                    break;
+                case 'completion':
+                    responseMessage += "Great! We've completed your profile setup. Please review your information in the left panel and click 'Looks Good' if everything is correct.";
+                    break;
+                default:
+                    responseMessage += "Please follow the instructions below to continue with your profile setup.";
+            }
+
+            addMessage({
+                sender: 'agent',
+                content: responseMessage,
+                type: 'text'
+            });
+
+            setAgentStatus('waiting_for_input');
+            setIsSending(false);
+
+            // Focus back on input
+            inputRef.current?.focus();
+        }, 1500);
+    };
+
     // Update the return function to remove extra buttons and controls
     return (
         <div className="flex flex-col h-full bg-background">
@@ -1597,7 +1654,13 @@ export default function ConversationPanel() {
                             value={userInput}
                             onChange={(e) => setUserInput(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                            placeholder="Type a message to the assistant..."
+                            placeholder={
+                                (currentStep as string) === 'job_titles' ? "Type a job title and press Enter..." :
+                                    (currentStep as string) === 'skills_verification' ? "Type a skill and press Enter..." :
+                                        (currentStep as string) === 'location_preferences' ? "Type a location and press Enter..." :
+                                            (currentStep as string) === 'industry_preferences' ? "Type an industry and press Enter..." :
+                                                "Type a message to the assistant..."
+                            }
                             className="flex-1 h-14 px-6 bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 text-base"
                             disabled={isSending}
                         />

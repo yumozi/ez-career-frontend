@@ -436,18 +436,21 @@ export function ConfirmationButtons({
     onConfirm,
     onReject,
     confirmText = "Looks Good",
-    rejectText = "No, I want to add comment"
+    rejectText = "No, I want to add comment",
+    disabled = false
 }: {
     onConfirm: () => void;
     onReject: () => void;
     confirmText?: string;
     rejectText?: string;
+    disabled?: boolean;
 }) {
     return (
         <div className="flex flex-wrap gap-2 mt-4 justify-end">
             <Button
                 onClick={onConfirm}
                 className="bg-green-600 hover:bg-green-700 text-white"
+                disabled={disabled}
             >
                 {confirmText}
             </Button>
@@ -455,6 +458,7 @@ export function ConfirmationButtons({
                 onClick={onReject}
                 variant="outline"
                 className="border-gray-200"
+                disabled={disabled}
             >
                 {rejectText}
             </Button>
