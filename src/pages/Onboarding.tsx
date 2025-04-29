@@ -4,9 +4,9 @@ import { useAuth } from "@/lib/auth-context";
 import { supabase } from "@/lib/supabase";
 import InteractionPanel from "@/components/onboarding/InteractionPanel";
 import ConversationPanel from "@/components/onboarding/ConversationPanel";
-import { OnboardingProvider, useOnboarding } from "@/components/onboarding/OnboardingContext";
+import { OnboardingProvider } from "@/components/onboarding/OnboardingContext";
 import { Button } from "@/components/ui/button";
-import { FaArrowRight, FaNotesMedical, FaCheck } from "react-icons/fa";
+import { FaArrowRight, FaNotesMedical } from "react-icons/fa";
 import { toast } from "@/components/ui/use-toast";
 import { Toaster } from "@/components/ui/toaster";
 
@@ -14,46 +14,6 @@ function OnboardingContent() {
     const { user } = useAuth();
     const navigate = useNavigate();
     const [isSkipping, setIsSkipping] = useState(false);
-    const {
-        progressPercentage,
-        currentStep,
-        agentStatus,
-        isUploading,
-        goToNextStep,
-        goToPreviousStep,
-        saveOnboardingData,
-        onboardingData
-    } = useOnboarding();
-
-    // Local function to determine if next button should be shown
-    const shouldShowNextButton = () => {
-        if (agentStatus === 'processing_resume' || agentStatus === 'analyzing_data' || isUploading) {
-            return false;
-        }
-
-        switch (currentStep) {
-            case 'job_titles':
-                return onboardingData.jobPreference.job_titles.length > 0;
-            case 'experience_level':
-                return !!onboardingData.jobPreference.experience_level;
-            case 'salary_expectations':
-                return !!onboardingData.jobPreference.salary_range;
-            case 'job_search_status':
-                return !!onboardingData.jobPreference.job_search_status;
-            case 'resume_upload':
-                return false; // This advances automatically after upload
-            case 'skills_verification':
-                return onboardingData.userSkills.length > 0;
-            case 'location_preferences':
-                return onboardingData.jobPreference.preferred_locations.length > 0;
-            case 'remote_preferences':
-                return true; // This is just a boolean switch, so always allow next
-            case 'industry_preferences':
-                return onboardingData.jobPreference.preferred_industries.length > 0;
-            default:
-                return true;
-        }
-    };
 
     const handleSkipOnboarding = async () => {
         if (isSkipping || !user) return; // Prevent multiple clicks or if no user
@@ -129,7 +89,7 @@ function OnboardingContent() {
 
             <div className="flex h-screen w-full overflow-hidden">
                 <div className="flex w-full h-full">
-                    {/* Interaction Panel with dramatic shadow */}
+                    {/* AI Notebook Panel (Left side) */}
                     <div className="w-5/12 h-full relative">
                         {/* Shadow element */}
                         <div className="absolute inset-0 bg-blue-50 rounded-tr-3xl rounded-br-3xl right-[-15px] z-0" style={{
@@ -138,62 +98,29 @@ function OnboardingContent() {
 
                         {/* Content container */}
                         <div className="absolute inset-0 bg-blue-50 rounded-tr-3xl rounded-br-3xl z-10 flex flex-col">
-                            {/* Header moved to blue background - improved structure with more padding */}
-                            <div className="py-8 px-10">
+                            {/* Header with title */}
+                            <div className="py-8 px-10 flex-shrink-0">
                                 <div className="flex items-center gap-5">
                                     <div className="flex-shrink-0 bg-blue-100 p-3.5 rounded-full shadow-sm">
                                         <FaNotesMedical className="h-7 w-7 text-blue-600" />
                                     </div>
                                     <div>
                                         <h2 className="text-2xl font-medium text-gray-800 mb-1">We are taking notes for your job preference</h2>
-                                        {/* <p className="text-sm text-slate-500">Please complete all sections</p> */}
                                     </div>
                                 </div>
-
-                                {/* Status bar removed */}
                             </div>
 
-                            {/* The InteractionPanel without its header and navigation buttons */}
-                            <div className="flex-1 px-10 pb-0">
-                                <div className="bg-white h-full rounded-2xl overflow-hidden">
+                            {/* The InteractionPanel (now shows a summary of user data) */}
+                            <div className="flex-1 px-10 pb-8 overflow-hidden">
+                                <div className="bg-white h-full rounded-2xl overflow-auto shadow-sm">
                                     <InteractionPanel showHeader={false} showNavigation={false} />
                                 </div>
-                            </div>
-
-                            {/* Navigation buttons moved to blue padding */}
-                            <div className="px-10 pt-4 pb-8 flex justify-between">
-                                <Button
-                                    variant="ghost"
-                                    onClick={goToPreviousStep}
-                                    disabled={currentStep === 'welcome' || agentStatus === 'processing_resume' || agentStatus === 'analyzing_data' || isUploading}
-                                    className="text-slate-700 hover:text-slate-900 hover:bg-blue-100"
-                                >
-                                    Back
-                                </Button>
-
-                                {shouldShowNextButton() && currentStep !== 'completion' && (
-                                    <Button
-                                        onClick={goToNextStep}
-                                        className="bg-blue-600 hover:bg-blue-700 text-white gap-1 px-6"
-                                    >
-                                        Next <FaArrowRight className="ml-1 h-3.5 w-3.5" />
-                                    </Button>
-                                )}
-
-                                {currentStep === 'completion' && (
-                                    <Button
-                                        onClick={saveOnboardingData}
-                                        className="bg-blue-600 hover:bg-blue-700 text-white gap-1 px-6"
-                                    >
-                                        Complete <FaCheck className="ml-1 h-3.5 w-3.5" />
-                                    </Button>
-                                )}
                             </div>
                         </div>
                     </div>
 
-                    {/* Conversation Panel (Right side) */}
-                    <div className="w-7/12 h-full bg-white">
+                    {/* Conversation & Interactive Panel (Right side) */}
+                    <div className="w-7/12 h-full bg-white overflow-hidden">
                         <ConversationPanel />
                     </div>
                 </div>

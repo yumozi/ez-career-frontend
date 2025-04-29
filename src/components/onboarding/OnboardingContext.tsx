@@ -57,7 +57,7 @@ export interface Message {
     content: string;
     timestamp: Date;
     type?: 'text' | 'option_selected' | 'file_upload' | 'skill_update';
-    metadata?: any;
+    metadata?: unknown;
 }
 
 interface OnboardingContextType {
@@ -82,6 +82,7 @@ interface OnboardingContextType {
     uploadResume: (file: File, resumeUrl?: string, parsedText?: string) => Promise<void>;
     saveOnboardingData: () => Promise<boolean>;
     setCurrentInteraction: (interaction: ReactNode) => void;
+    cleanupDuplicateMessages: () => void;
 }
 
 // Create the context with a default value
@@ -108,16 +109,16 @@ const generateId = () => Math.random().toString(36).substring(2, 9);
 export function OnboardingProvider({ children }: { children: ReactNode }) {
     const { user } = useAuth();
     const [currentStep, setCurrentStep] = useState<OnboardingStep>('welcome');
-    const [agentStatus, setAgentStatus] = useState<AgentStatus>('idle');
+    const [agentStatus, setAgentStatus] = useState<AgentStatus>('waiting_for_input');
     const [onboardingData, setOnboardingData] = useState<OnboardingData>(initialOnboardingData);
-    const [agentMessage, setAgentMessage] = useState<string>('Hello! I\'m your EZ Career assistant. I\'ll help you set up your profile and job preferences.');
+    const [agentMessage, setAgentMessage] = useState<string>("Welcome to EZ Career! I'll help you set up your profile step by step. Let's start by uploading your resume. Please use the upload button below.");
     const [progressPercentage, setProgressPercentage] = useState<number>(0);
     const [isUploading, setIsUploading] = useState<boolean>(false);
     const [messages, setMessages] = useState<Message[]>([
         {
             id: generateId(),
             sender: 'agent',
-            content: 'Hello! I\'m your EZ Career assistant. I\'ll help you set up your profile and job preferences.',
+            content: "Welcome to EZ Career! I'll help you set up your profile step by step. Let's start by uploading your resume. Please use the upload button below.",
             timestamp: new Date(),
             type: 'text'
         }
@@ -132,7 +133,75 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             timestamp: new Date()
         };
 
-        setMessages(prev => [...prev, newMessage]);
+        // Check for recent duplicate messages to avoid adding them
+        if (message.sender === 'agent') {
+            // Get the last few messages
+            setMessages(prev => {
+                const recentMessages = prev.slice(-5);
+
+                // Check if this exact message content already exists in recent messages
+                const isDuplicate = recentMessages.some(m =>
+                    m.sender === 'agent' &&
+                    m.content.trim() === message.content.trim()
+                );
+
+                // If it's a duplicate, don't add it
+                if (isDuplicate) {
+                    console.log('Prevented adding duplicate message:', message.content);
+                    return prev;
+                }
+
+                return [...prev, newMessage];
+            });
+        } else {
+            // For non-agent messages, always add them
+            setMessages(prev => [...prev, newMessage]);
+        }
+    };
+
+    // Add a method to clean up duplicate messages
+    const cleanupDuplicateMessages = () => {
+        setMessages(prev => {
+            // Group messages by content
+            const groups: Record<string, Message[]> = {};
+
+            prev.filter(m => m.sender === 'agent').forEach(message => {
+                // Create a normalized version of the content for comparison
+                const normalizedContent = message.content
+                    .replace(/\d+:\d+ [AP]M/g, '') // Remove times
+                    .replace(/\s+/g, ' ')          // Normalize whitespace
+                    .trim();
+
+                if (!groups[normalizedContent]) {
+                    groups[normalizedContent] = [];
+                }
+                groups[normalizedContent].push(message);
+            });
+
+            // Find duplicate groups
+            const duplicateGroups = Object.values(groups).filter(group => group.length > 1);
+
+            // If no duplicates, return the original array
+            if (duplicateGroups.length === 0) {
+                return prev;
+            }
+
+            // Get all message IDs to remove (keeping first and last of each group)
+            const idsToRemove = new Set<string>();
+            duplicateGroups.forEach(group => {
+                // Keep the first and last message in each group
+                const toRemove = group.slice(1, -1);
+                toRemove.forEach(msg => idsToRemove.add(msg.id));
+            });
+
+            // If we found duplicates to remove
+            if (idsToRemove.size > 0) {
+                console.log(`Removing ${idsToRemove.size} duplicate messages`);
+                return prev.filter(msg => !idsToRemove.has(msg.id));
+            }
+
+            return prev;
+        });
     };
 
     // Order of steps
@@ -179,38 +248,38 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
 
             switch (nextStep) {
                 case 'resume_upload':
-                    nextMessage = 'Let\'s start by uploading your resume so I can help personalize your profile. I accept PDF formats.';
+                    nextMessage = 'Let\'s start by uploading your resume so I can help personalize your profile. Please use the upload button below.';
                     break;
                 case 'resume_analysis':
                     nextMessage = 'Thank you! I\'m analyzing your resume now...';
                     setAgentStatus('processing_resume');
                     break;
                 case 'job_titles':
-                    nextMessage = 'Based on your resume, here are some suggested job titles. You can select from these or add your own.';
+                    nextMessage = 'Based on your resume, here are some suggested job titles. You can select from these or add your own using the input field below.';
                     break;
                 case 'experience_level':
-                    nextMessage = 'What is your current experience level?';
+                    nextMessage = 'What is your current experience level? Please select one of the options below.';
                     break;
                 case 'salary_expectations':
-                    nextMessage = 'What are your salary expectations?';
+                    nextMessage = 'What are your salary expectations? Please select an option below.';
                     break;
                 case 'job_search_status':
-                    nextMessage = 'What is your current job search status?';
+                    nextMessage = 'What is your current job search status? Select the option that best describes your situation below.';
                     break;
                 case 'skills_verification':
-                    nextMessage = 'Based on your resume, I\'ve identified these skills. Please confirm them and add any missing ones.';
+                    nextMessage = 'Based on your resume, I\'ve identified these skills. Please confirm them, add any missing ones, or highlight important skills using the star icon.';
                     break;
                 case 'location_preferences':
-                    nextMessage = 'What locations would you prefer to work in?';
+                    nextMessage = 'Where would you prefer to work? Add your preferred locations using the input field below.';
                     break;
                 case 'remote_preferences':
-                    nextMessage = 'Are you open to remote work?';
+                    nextMessage = 'Are you open to remote work? Please toggle the switch below to indicate your preference.';
                     break;
                 case 'industry_preferences':
-                    nextMessage = 'What industries are you interested in working in?';
+                    nextMessage = 'What industries are you interested in? Add them using the input field below.';
                     break;
                 case 'completion':
-                    nextMessage = 'Great! Your profile is now set up. You can now start exploring job opportunities.';
+                    nextMessage = 'Great! I\'ve collected all the information needed for your profile. Please review everything in the left panel and click "Looks Good" below if you\'re ready to finish.';
                     break;
             }
 
@@ -232,13 +301,13 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             // jump back to resume_upload instead of resume_analysis
             if (currentStep === 'job_titles') {
                 const hasResume = onboardingData.resume && onboardingData.resume.url && onboardingData.resume.url.length > 0;
-                
+
                 if (!hasResume) {
                     // No resume was uploaded, go directly to resume_upload step
                     const resumeUploadIndex = stepOrder.indexOf('resume_upload');
                     setCurrentStep('resume_upload');
                     setProgressPercentage(stepProgressMap['resume_upload']);
-                    
+
                     // Add a system message about going back
                     addMessage({
                         sender: 'system',
@@ -248,7 +317,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
                     return;
                 }
             }
-            
+
             // Normal case: go to the previous step
             const prevStep = stepOrder[currentIndex - 1];
             setCurrentStep(prevStep);
@@ -392,16 +461,28 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         try {
             setIsUploading(true);
 
+            // Validate file type
+            const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+            if (!allowedTypes.includes(file.type)) {
+                throw new Error(`Invalid file type: ${file.type}. Please upload a PDF or Word document.`);
+            }
+
+            // Check file size (max 10MB)
+            const maxSize = 10 * 1024 * 1024; // 10MB in bytes
+            if (file.size > maxSize) {
+                throw new Error(`File too large: ${(file.size / 1024 / 1024).toFixed(2)}MB. Maximum size is 10MB.`);
+            }
+
             // Record the upload action in chat
             addMessage({
                 sender: 'user',
                 content: `Uploaded resume: ${file.name}`,
                 type: 'file_upload',
-                metadata: { fileName: file.name, fileSize: file.size }
+                metadata: { fileName: file.name, fileSize: file.size, fileType: file.type }
             });
 
             let publicUrl = resumeUrl;
-            let resumeParsedText = parsedText;
+            const resumeParsedText = parsedText; // Use const instead of let since it's never reassigned
 
             // If no URL is provided, upload the file to storage
             if (!publicUrl) {
@@ -433,7 +514,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
                 publicUrl = urlData.publicUrl;
                 console.log('Resume URL generated:', publicUrl);
             }
-            
+
             // Add a system message about processing
             addMessage({
                 sender: 'system',
@@ -469,9 +550,9 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
             // Add an agent message about successful upload
             addMessage({
                 sender: 'agent',
-                content: resumeParsedText 
-                    ? 'I\'ve successfully processed your resume and I\'m now analyzing it to extract your skills and experience.'
-                    : 'Your resume has been uploaded successfully. You can now continue with your profile setup.',
+                content: resumeParsedText
+                    ? 'I\'ve successfully processed your resume and I\'m now analyzing it to extract your skills and experience. Please wait while I prepare your profile suggestions...'
+                    : 'Your resume has been uploaded successfully. I\'ll now guide you through the next steps to set up your profile.',
                 type: 'text',
             });
 
@@ -514,7 +595,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
                 .select('user_id')
                 .eq('user_id', user.id)
                 .maybeSingle();
-                
+
             if (checkError) {
                 console.error('Error checking existing job preferences:', checkError);
                 // Continue anyway - we'll try the upsert
@@ -531,7 +612,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
                         updated_at: new Date().toISOString()
                     })
                     .eq('user_id', user.id);
-                    
+
                 preferencesError = error;
             } else {
                 // Insert new preferences
@@ -542,7 +623,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
                         ...onboardingData.jobPreference,
                         updated_at: new Date().toISOString()
                     });
-                    
+
                 preferencesError = error;
             }
 
@@ -623,7 +704,8 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         removeSkill,
         uploadResume,
         saveOnboardingData,
-        setCurrentInteraction
+        setCurrentInteraction,
+        cleanupDuplicateMessages
     };
 
     return (
