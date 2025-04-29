@@ -140,7 +140,7 @@ function OnboardingContent() {
                         <div className="absolute inset-0 bg-blue-50 rounded-tr-3xl rounded-br-3xl z-10 flex flex-col">
                             {/* Header moved to blue background - improved structure with more padding */}
                             <div className="py-8 px-10">
-                                <div className="flex items-center gap-5 mb-6">
+                                <div className="flex items-center gap-5">
                                     <div className="flex-shrink-0 bg-blue-100 p-3.5 rounded-full shadow-sm">
                                         <FaNotesMedical className="h-7 w-7 text-blue-600" />
                                     </div>
@@ -150,17 +150,7 @@ function OnboardingContent() {
                                     </div>
                                 </div>
 
-                                <div className="mt-3">
-                                    <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden shadow-inner">
-                                        <div
-                                            className="h-full bg-blue-500 rounded-full transition-all duration-300 ease-out"
-                                            style={{ width: `${progressPercentage}%` }}
-                                        ></div>
-                                    </div>
-                                    <p className="text-xs text-right mt-2 text-slate-500 font-medium">
-                                        {Math.round(progressPercentage)}% Complete
-                                    </p>
-                                </div>
+                                {/* Status bar removed */}
                             </div>
 
                             {/* The InteractionPanel without its header and navigation buttons */}
