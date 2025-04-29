@@ -77,8 +77,8 @@ interface OnboardingContextType {
     setAgentMessage: (message: string) => void;
     addMessage: (message: Omit<Message, 'id' | 'timestamp'>) => void;
     updateJobPreference: (data: Partial<JobPreference>, recordInChat?: boolean) => void;
-    addSkill: (skill: UserSkill) => void;
-    removeSkill: (skillName: string) => void;
+    addSkill: (skill: UserSkill, recordInChat?: boolean) => void;
+    removeSkill: (skillName: string, recordInChat?: boolean) => void;
     uploadResume: (file: File, resumeUrl?: string, parsedText?: string) => Promise<void>;
     saveOnboardingData: () => Promise<boolean>;
     setCurrentInteraction: (interaction: ReactNode) => void;
@@ -397,7 +397,7 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         }
     };
 
-    const addSkill = (skill: UserSkill) => {
+    const addSkill = (skill: UserSkill, recordInChat = true) => {
         setOnboardingData(prev => {
             // Check if skill already exists
             const exists = prev.userSkills.some(s => s.skill_name === skill.skill_name);
@@ -408,13 +408,15 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
                     s.skill_name === skill.skill_name ? { ...s, ...skill } : s
                 );
 
-                // Add a message about updating the skill
-                addMessage({
-                    sender: 'user',
-                    content: `Updated skill: ${skill.skill_name}`,
-                    type: 'skill_update',
-                    metadata: skill
-                });
+                // Add a message about updating the skill (if requested)
+                if (recordInChat) {
+                    addMessage({
+                        sender: 'user',
+                        content: `Updated skill: ${skill.skill_name}`,
+                        type: 'skill_update',
+                        metadata: skill
+                    });
+                }
 
                 return {
                     ...prev,
@@ -422,13 +424,15 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
                 };
             } else {
                 // Add new skill
-                // Add a message about adding a new skill
-                addMessage({
-                    sender: 'user',
-                    content: `Added skill: ${skill.skill_name}`,
-                    type: 'skill_update',
-                    metadata: skill
-                });
+                // Add a message about adding a new skill (if requested)
+                if (recordInChat) {
+                    addMessage({
+                        sender: 'user',
+                        content: `Added skill: ${skill.skill_name}`,
+                        type: 'skill_update',
+                        metadata: skill
+                    });
+                }
 
                 return {
                     ...prev,
@@ -438,15 +442,17 @@ export function OnboardingProvider({ children }: { children: ReactNode }) {
         });
     };
 
-    const removeSkill = (skillName: string) => {
+    const removeSkill = (skillName: string, recordInChat = true) => {
         setOnboardingData(prev => {
-            // Add a message about removing the skill
-            addMessage({
-                sender: 'user',
-                content: `Removed skill: ${skillName}`,
-                type: 'skill_update',
-                metadata: { skillName, removed: true }
-            });
+            // Add a message about removing the skill (if requested)
+            if (recordInChat) {
+                addMessage({
+                    sender: 'user',
+                    content: `Removed skill: ${skillName}`,
+                    type: 'skill_update',
+                    metadata: { skillName, removed: true }
+                });
+            }
 
             return {
                 ...prev,

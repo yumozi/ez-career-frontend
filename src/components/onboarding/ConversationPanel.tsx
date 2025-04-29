@@ -403,60 +403,55 @@ export default function ConversationPanel() {
             // Store the complete suggestions data for use throughout the onboarding flow
             setSuggestions(data);
 
-            // Add message showing all the suggestions we received
-            const suggestionsMessage = buildSuggestionsMessage(data);
-            addMessage({
-                sender: 'agent',
-                content: suggestionsMessage,
-                type: 'text'
-            });
-
-            // Populate job titles with suggestions
+            // Store the information internally without showing messages yet
+            // These will be displayed at the appropriate steps in the conversation
             if (data.suggested_job_titles && data.suggested_job_titles.length > 0) {
+                // Silently populate job titles without recording in chat
                 updateJobPreference({
                     job_titles: data.suggested_job_titles
-                }, false); // Don't record in chat
+                }, false);
             }
 
-            // Add skills from resume
+            // Silently store skills without showing in chat, they'll be revealed during the skills step
             if (data.skills && data.skills.length > 0) {
-                // Clear any existing skills
+                // Clear existing skills silently
                 onboardingData.userSkills.forEach(skill => {
-                    removeSkill(skill.skill_name);
+                    removeSkill(skill.skill_name, false); // Add a boolean param to prevent adding chat message
                 });
 
-                // Add new skills from the API
+                // Silently store skills from API without recording chat messages
                 data.skills.forEach(skill => {
+                    // Silently add skills
                     addSkill({
                         skill_name: skill,
                         is_highlighted: false,
                         source: 'resume'
-                    });
+                    }, false); // Add a boolean param to prevent showing in chat
                 });
             }
 
-            // Set experience level if suggested
+            // Set experience level if suggested (silently)
             if (data.recommended_experience_level) {
                 updateJobPreference({
                     experience_level: data.recommended_experience_level
                 }, false);
             }
 
-            // Set salary range if suggested
+            // Set salary range if suggested (silently)
             if (data.recommended_salary_range) {
                 updateJobPreference({
                     salary_range: data.recommended_salary_range
                 }, false);
             }
 
-            // Add recommended locations
+            // Add recommended locations (silently)
             if (data.recommended_locations && data.recommended_locations.length > 0) {
                 updateJobPreference({
                     preferred_locations: data.recommended_locations
                 }, false);
             }
 
-            // Add recommended industries
+            // Add recommended industries (silently)
             if (data.recommended_industries && data.recommended_industries.length > 0) {
                 updateJobPreference({
                     preferred_industries: data.recommended_industries
