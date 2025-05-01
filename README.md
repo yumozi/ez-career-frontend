@@ -2,7 +2,7 @@
 
 ## Overview
 
-EZ Career is an AI-powered job application management platform designed to streamline the job search process. This repository contains the frontend application built with React, TypeScript, and Tailwind CSS, featuring a modern UI powered by Shadcn UI components.
+EZ Career is an AI-Agent job application management platform designed to streamline the job search process. This repository contains the frontend application built with React, TypeScript, and Tailwind CSS, featuring a modern UI powered by Shadcn UI components.
 
 Developed for the Microsoft AI Agent Hackathon, EZ Career leverages AI agents to assist users throughout their job search journey, from resume analysis to interview preparation.
 
@@ -130,6 +130,45 @@ The application relies on the following tables:
 - `applications`: Job application records
 - `questions`: Interview questions for practice
 - `user_answers`: User responses to interview questions
+
+## Backend Integration
+
+The frontend provides a GUI that interacts with a Python-based backend service (`ez-career-service`). Understanding the backend structure and API endpoints is crucial for frontend development.
+
+### Backend Structure
+
+The backend is built with FastAPI and provides several key services:
+
+1. **AI Agent Orchestration**: Manages multiple specialized AI agents for different job search tasks
+2. **Task Management**: Handles asynchronous task processing, cancellation, and results retrieval
+3. **Resume Processing**: Parses PDF resumes and analyzes text
+4. **Data Analysis**: Generates embeddings and analyzes user responses
+5. **Supabase Integration**: Interacts with the same Supabase instance as the frontend
+
+### Key API Endpoints
+
+The frontend interacts with these main backend endpoints:
+
+| Endpoint | Method | Purpose | Frontend Usage |
+|----------|--------|---------|----------------|
+| `/orchestrate` | POST | Run AI agent tasks asynchronously | Agent assistance in job search |
+| `/tasks/result/{trace_id}` | GET | Poll for results of background tasks | Retrieve agent responses |
+| `/cancel` | POST | Cancel a running task | Stop lengthy operations |
+| `/parse` | POST | Convert PDF resumes to markdown | Resume upload processing |
+| `/submit-answer` | POST | Process and store interview answers | Question answering page |
+| `/suggestions` | POST | Generate job recommendations | Profile recommendations |
+| `/embedding` | POST | Generate vector embeddings | Text analysis features |
+
+
+### Handling Backend Tasks
+
+The backend processes tasks asynchronously, so the frontend implements patterns to:
+
+1. **Initiate Tasks**: Send requests to start processes
+2. **Poll for Results**: Check task status periodically
+3. **Display Progress**: Show loading states or partial results
+4. **Handle Errors**: Gracefully manage timeouts and failures
+5. **Cancel Operations**: Allow users to stop long-running processes
 
 ## AI Agent Integration
 
